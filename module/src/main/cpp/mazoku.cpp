@@ -20,8 +20,6 @@
 
 #include "zygisk.hpp"
 
-#inxlude "mazoku.cpp"
-
 using zygisk::Api;
 using zygisk::AppSpecializeArgs;
 using zygisk::ServerSpecializeArgs;
