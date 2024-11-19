@@ -46,6 +46,8 @@ android {
     }
 }
 
+val adbPath = "C:/Users/riad8/AppData/Local/Android/Sdk/platform-tools/adb"
+
 androidComponents.onVariants { variant ->
     afterEvaluate {
         val variantLowered = variant.name.lowercase()
@@ -124,7 +126,7 @@ androidComponents.onVariants { variant ->
         val pushTask = task<Exec>("push$variantCapped") {
             group = "module"
             dependsOn(zipTask)
-            commandLine("adb", "push", zipTask.outputs.files.singleFile.path, "/data/local/tmp")
+            commandLine(adbPath, "push", zipTask.outputs.files.singleFile.path, "/data/local/tmp")
         }
 
         val installKsuTask = task<Exec>("installKsu$variantCapped") {
@@ -159,6 +161,10 @@ androidComponents.onVariants { variant ->
             group = "module"
             dependsOn(installMagiskTask)
             commandLine("adb", "reboot")
+        }
+
+        tasks.named("build").configure {
+            finalizedBy(pushTask)
         }
     }
 }

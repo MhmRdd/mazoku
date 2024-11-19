@@ -15,17 +15,14 @@
 #include <cstdlib>
 #include <unistd.h>
 #include <fcntl.h>
-#include <stdbool.h>
-#include <android/log.h>
 
 #include "zygisk.hpp"
+
+#include "core.cpp"
 
 using zygisk::Api;
 using zygisk::AppSpecializeArgs;
 using zygisk::ServerSpecializeArgs;
-
-#define LOG_ON false
-#define LOGD(...) if (LOG_ON) __android_log_print(ANDROID_LOG_DEBUG, "mazoku", __VA_ARGS__)
 
 class Mazoku : public zygisk::ModuleBase {
 public:
