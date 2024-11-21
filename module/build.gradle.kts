@@ -56,9 +56,9 @@ androidComponents.onVariants { variant ->
         val supportedAbis = abiList.map {
             when (it) {
                 "arm64-v8a" -> "arm64"
-                "armeabi-v7a" -> "arm"
-                "x86" -> "x86"
-                "x86_64" -> "x64"
+                //"armeabi-v7a" -> "arm"
+                //"x86" -> "x86"
+                //"x86_64" -> "x64"
                 else -> error("unsupported abi $it")
             }
         }.joinToString(" ")
@@ -133,7 +133,7 @@ androidComponents.onVariants { variant ->
             group = "module"
             dependsOn(pushTask)
             commandLine(
-                "adb", "shell", "su", "-c",
+                adbPath, "shell", "su", "-c",
                 "/data/adb/ksud module install /data/local/tmp/$zipFileName"
             )
         }
@@ -142,7 +142,7 @@ androidComponents.onVariants { variant ->
             group = "module"
             dependsOn(pushTask)
             commandLine(
-                "adb",
+                adbPath,
                 "shell",
                 "su",
                 "-M",
@@ -154,17 +154,17 @@ androidComponents.onVariants { variant ->
         task<Exec>("installKsuAndReboot$variantCapped") {
             group = "module"
             dependsOn(installKsuTask)
-            commandLine("adb", "reboot")
+            commandLine(adbPath, "reboot")
         }
 
         task<Exec>("installMagiskAndReboot$variantCapped") {
             group = "module"
             dependsOn(installMagiskTask)
-            commandLine("adb", "reboot")
+            commandLine(adbPath, "reboot")
         }
 
-        tasks.named("build").configure {
-            finalizedBy(pushTask)
-        }
+        //tasks.named("build").configure {
+        //    finalizedBy(pushTask)
+        //}
     }
 }

@@ -64,21 +64,14 @@ HAS32BIT=false && [ $(getprop ro.product.cpu.abilist32) ] && HAS32BIT=true
 mkdir "$MODPATH/zygisk"
 
 if [ "$ARCH" = "x86" ] || [ "$ARCH" = "x64" ]; then
-  if [ "$HAS32BIT" = true ]; then
-    ui_print "- Extracting x86 libraries"
-    extract "$ZIPFILE" "lib/x86/lib$SONAME.so" "$MODPATH/zygisk/" true
-    mv "$MODPATH/zygisk/lib$SONAME.so" "$MODPATH/zygisk/x86.so"
-  fi
-
-  ui_print "- Extracting x64 libraries"
-  extract "$ZIPFILE" "lib/x86_64/lib$SONAME.so" "$MODPATH/zygisk" true
-  mv "$MODPATH/zygisk/lib$SONAME.so" "$MODPATH/zygisk/x86_64.so"
+  ui_print "*********************************************************"
+  ui_print "! This architecture is not supported yet!"
+  abort    "*********************************************************"
 else
-  if [ "$HAS32BIT" = true ]; then
-    extract "$ZIPFILE" "lib/armeabi-v7a/lib$SONAME.so" "$MODPATH/zygisk" true
-    mv "$MODPATH/zygisk/lib$SONAME.so" "$MODPATH/zygisk/armeabi-v7a.so"
-  fi
-
+  #if [ "$HAS32BIT" = true ]; then
+  #  extract "$ZIPFILE" "lib/armeabi-v7a/lib$SONAME.so" "$MODPATH/zygisk" true
+  #  mv "$MODPATH/zygisk/lib$SONAME.so" "$MODPATH/zygisk/armeabi-v7a.so"
+  #fi
   ui_print "- Extracting arm64 libraries"
   extract "$ZIPFILE" "lib/arm64-v8a/lib$SONAME.so" "$MODPATH/zygisk" true
   mv "$MODPATH/zygisk/lib$SONAME.so" "$MODPATH/zygisk/arm64-v8a.so"
