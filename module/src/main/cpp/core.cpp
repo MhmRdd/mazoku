@@ -10,6 +10,7 @@
 #include <string>
 #include <sys/stat.h>
 #include <algorithm>
+#include "And64InlineHook.hpp"
 
 using namespace std;
 
@@ -22,42 +23,53 @@ typedef struct {
 } Aeo;
 
 typedef struct {
-	int32_t	id;
-	int 	unk_a;
-	void*	code;
-	int 	verdict;
-	int		code_size;
-	int 	block_size;
-	bool	unk_b;
-	int 	unk_c;
-	int 	unk_d;
-	int 	unk_e;
-	int 	unk_f;
+	uint32_t		id;
+	int 			unk_a;
+	void*			code;
+	unsigned int 	verdict;
+	int				code_size;
+	int 			block_size;
+	bool			unk_b;
+	int 			unk_c;
+	int 			unk_d;
+	int 			unk_e;
+	int 			unk_f;
 } Eo;
 
 bool hasGameSafe = false;
 Aeo* (*anoGetExternalObjects)();
-int (*anoCreateSWBackedIntegrity)(int, unsigned char *, size_t);
-int (*anoCreateMemoryHashed)(const void*, unsigned int) = nullptr;
+unsigned int (*anoCreateSWBackedIntegrity)(int, unsigned char *, size_t);
+unsigned int (*anoCreateMemoryHashed)(const void*, unsigned int) = nullptr;
 
-void mazoku_callback(uintptr_t start, uintptr_t end, const char* perms,
+unsigned int (*anoParcelCreateMemABacked)(const void* src, unsigned int len);
+unsigned int mazokuParcelCreateMemABacked(const void* src, unsigned int len) {
+	char* lib = wherethis(src);
+	if (lib) {
+		LOGI("[MemoryBackedScan]: %s(%p) [size=%ud]", lib, src, len);
+	} else {
+		LOGI("[MemoryBackedScan]: ???(%p) [size=%ud]", src, len);
+	}
+	return anoParcelCreateMemABacked(src, len);
+}
+
+void init_callback(uintptr_t start, uintptr_t end, const char* perms,
 					 off_t offset, const char* dev,
 					 unsigned int inode, const char* file)
 {
 	if (strstr(file, "/libanogs.so") && is_elf(start)) {
 		hasGameSafe = true;
 		anoGetExternalObjects = (Aeo* (*)()) (start + 0x29AF48);
-		anoCreateSWBackedIntegrity = (int (*)(int, unsigned char *, size_t)) (start + 0x28D57C);
+		anoCreateSWBackedIntegrity = (unsigned int(*)(int, unsigned char *, size_t)) (start + 0x28D57C);
 	}
 }
 
-std::vector<long> spid = {
+std::vector<unsigned int> spid = {
 		0x65ed4aa9,
 		0x29e97f13,
 		0x8852e992
 };
 
-std::vector<long> sped = {};
+std::vector<unsigned int> sped = {};
 
 enum SPTAG {
 	SPT_MEMHASH_A,
@@ -65,9 +77,7 @@ enum SPTAG {
 	SPT_PARCEL
 };
 
-
-
-bool seekpatch(int id, void* code, int size)
+bool seekpatch(unsigned int id, void* code, int size)
 {
 	struct timespec loopnap{};
 	loopnap.tv_sec = 1;
@@ -78,23 +88,15 @@ bool seekpatch(int id, void* code, int size)
 		index = std::distance(spid.begin(), it);
 	} else
 		return false;
+	LOGI("index = %ld", index);
 	switch (index) {
 		case SPT_MEMHASH_A:
-			while (!anoCreateMemoryHashed) {
-				anoCreateMemoryHashed = (int (*)(const void*, unsigned int)) (* (uintptr_t *) ((uintptr_t) code + 1032));
-				nanosleep(&loopnap, nullptr);
-			}
-			LOGI("anoCreateMemoryHashed [%p]", anoCreateMemoryHashed);
+			A64HookFunction((void*) ((uintptr_t) code + 820), (void*) mazokuParcelCreateMemABacked, (void**) &anoParcelCreateMemABacked);
 			break;
 		case SPT_MEMHASH_B:
-			while (!anoCreateMemoryHashed) {
-				anoCreateMemoryHashed = (int (*)(const void*, unsigned int)) (* (uintptr_t *) ((uintptr_t) code + 928));
-				nanosleep(&loopnap, nullptr);
-			}
-			LOGI("anoCreateMemoryHashed [%p]", anoCreateMemoryHashed);
 			break;
 		case SPT_PARCEL:
-			exit(0);
+
 			break;
 		default:
 			return false;
@@ -109,7 +111,7 @@ void mazoku_runtime()
 	loopnap.tv_sec = 1;
 	loopnap.tv_nsec = 0;
 	while (!hasGameSafe) {
-		maps_pairs(mazoku_callback);
+		maps_pairs(init_callback);
 		nanosleep(&loopnap, nullptr);
 	}
 	LOGI("anoGetExternalObjects [%p]", anoGetExternalObjects);
@@ -124,8 +126,8 @@ void mazoku_runtime()
 			len = ((uintptr_t) anoExtObjs->finish - (uintptr_t) anoExtObjs->begin) / sizeof(void*);
 			nanosleep(&loopnap, nullptr);
 		} while (!len);
-		LOGI("Objects [%zu]", len);
 		loopback:
+		LOGI("Objects [%zu]", len);
 		Eo** objector = (Eo**) anoExtObjs->begin;
 		Eo* obj;
 		for (int i = 0; i < len; i++) {
@@ -136,15 +138,22 @@ void mazoku_runtime()
 				LOGI("\tcode(void*)      = %p", obj->code);
 				LOGI("\tverdict(hex)     = %X", obj->verdict);
 				LOGI("\tcode_size(int)   = %d", obj->code_size);
-				LOGI("\tblock_size(int)   = %d", obj->block_size);
+				LOGI("\tblock_size(int)  = %d", obj->block_size);
 				LOGI("\tunknown[b](bool) = %d", obj->unk_b);
 				LOGI("\tunknown[c](int)  = %d", obj->unk_c);
 				LOGI("\tunknown[d](int)  = %d", obj->unk_d);
 				LOGI("\tunknown[e](int)  = %d", obj->unk_e);
 				LOGI("\tunknown[f](int)  = %d", obj->unk_f);
 				LOGI("}");
-				LOGI("SoftwareBackedAttestation(%p, %d) = [%X]", obj->code, obj->code_size, anoCreateSWBackedIntegrity(0, (unsigned char *) obj->code, obj->code_size));
-			}
+				unsigned int updVerdict = anoCreateSWBackedIntegrity(0, (unsigned char *) obj->code, obj->code_size);
+				LOGI("SoftwareBackedAttestation(%p, %d) = [%X]", obj->code, obj->code_size, updVerdict);
+				if (updVerdict != obj->verdict) {
+					LOGI("[SWBA] Found modifications to object(%x)!", obj->id);
+					obj->verdict = updVerdict;
+					LOGI("Hacked leaf verdict of object -> %X", updVerdict);
+				}
+			} else
+				LOGI("extobj(%x) {...}", obj->id);
 		}
 		if (spid.size() > sped.size()) {
 			do {

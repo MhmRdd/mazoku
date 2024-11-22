@@ -6,6 +6,7 @@ extern "C" {
 #include <stdlib.h>
 #include <string.h>
 #include <elf.h>
+#include <inttypes.h>
 
 char* getDescription(const char *filePath) {
 	FILE *inputFile = fopen(filePath, "r");
@@ -134,4 +135,33 @@ void maps_pairs(map_callback callback)
 	}
 	fclose(file);
 }
+
+char* wherethis(const void* src) {
+	FILE* maps = fopen("/proc/self/maps", "r");
+	if (!maps) return NULL;
+	uintptr_t address = (uintptr_t)src;
+	char* line = NULL;
+	size_t len = 0;
+	while (getline(&line, &len, maps) != -1) {
+		uintptr_t start, end;
+		char perms[5], path[256] = "";
+		if (sscanf(line, "%" SCNxPTR "-%" SCNxPTR " %4s %*x %*x:%*x %*u %255[^\n]",
+				   &start, &end, perms, path) >= 3) {
+			if (address >= start && address <= end) {
+				const char* last_slash = strrchr(path, '/');
+				if (last_slash && strstr(last_slash, "/lib") && strstr(last_slash, ".so")) {
+					char* lib_name = static_cast<char *>(malloc(strlen(last_slash + 1) + 1));
+					if (lib_name) strcpy(lib_name, last_slash + 1);
+					free(line);
+					fclose(maps);
+					return lib_name;
+				}
+			}
+		}
+	}
+	free(line);
+	fclose(maps);
+	return NULL;
+}
+
 }
