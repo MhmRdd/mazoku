@@ -87,7 +87,7 @@ bool spoofTargetLib(const std::string& lib) {
 					mprotect(vmcpy, len, PROT_READ);
 					spoofedLibs[lib].emplace_back(start, (uintptr_t) vmcpy, len);
 					isAddedAtLeastOnce = true;
-					LOGI("Created software backed copy of `%s`!", lib.c_str());
+					LOGI("Created software backed copy of `%s`[%p-%p]!", lib.c_str(), (void*) start, (void*) end);
 				}
 			}
 		}
@@ -169,26 +169,6 @@ void init_callback(uintptr_t start, uintptr_t end, const char* perms,
 					 off_t offset, const char* dev,
 					 unsigned int inode, const char* file)
 {
-	const char* last_slash = strrchr(file, '/');
-	if (last_slash && strstr(last_slash, "/lib") && strstr(last_slash, ".so")) {
-		char* lib = static_cast<char *>(malloc(strlen(last_slash + 1) + 1));
-		if (lib) strcpy(lib, last_slash + 1);
-		auto it = spoofedLibs.find(lib);
-		if (!strcmp(perms, "r-xp") && it != spoofedLibs.end()) {
-			LOGI("Found `%s` in spoof_target_libs!", lib);
-			size_t len = end - start;
-			void* vmcpy = malloc(len);
-			if (!vmcpy) {
-				LOGE("Unable to allocate memory! (size = [%zu])", len);
-				return;
-			} else
-				memcpy(vmcpy, (void*) start, len);
-			mprotect(vmcpy, len, PROT_READ);
-			spoofedLibs[lib].emplace_back(start, (uintptr_t) vmcpy, len);
-			LOGI("Created software backed copy of `%s`!", lib);
-		}
-	} else
-		return;
 	if (strstr(file, "/libanogs.so") && is_elf(start)) {
 		hasGameSafe = true;
 		anoGetExternalObjects = (Aeo* (*)()) (start + 0x29AF48);
