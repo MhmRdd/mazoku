@@ -111,7 +111,7 @@ void init_callback(uintptr_t start, uintptr_t end, const char* perms,
 		auto it = spoofedLibs.find(lib);
 		if (it != spoofedLibs.end()) {
 			LOGI("Found `%s` in spoof_target_libs!", lib);
-			size_t len = start - end;
+			size_t len = end - start;
 			void* vmcpy = malloc(len);
 			if (!vmcpy) {
 				LOGE("Unable to allocate memory! (size = [%zu])", len);
@@ -182,7 +182,7 @@ void mazoku_runtime(const std::string& spoofTargetLibs)
 	loopnap.tv_nsec = 0;
 	ssize_t start = 0, end;
 	std::string spoofedLib;
-	LOGI("%s", spoofTargetLibs.c_str());
+	LOGI("spoofTargetLibs [%s]", spoofTargetLibs.c_str());
 	while ((end = spoofTargetLibs.find('\n')) != std::string::npos) {
 		spoofedLib = spoofTargetLibs.substr(start, end - start);
 		spoofedLibs[spoofedLib] = std::make_tuple(0, 0, 0);
@@ -194,7 +194,6 @@ void mazoku_runtime(const std::string& spoofTargetLibs)
 		maps_pairs(init_callback);
 		nanosleep(&loopnap, nullptr);
 	}
-	LOGI("spoofTargetLibs [%s]", spoofTargetLibs.c_str());
 	LOGI("anoGetExternalObjects [%p]", anoGetExternalObjects);
 	LOGI("anoCreateSWBackedIntegrity [%p]", anoCreateSWBackedIntegrity);
 	Aeo* anoExtObjs = anoGetExternalObjects();
