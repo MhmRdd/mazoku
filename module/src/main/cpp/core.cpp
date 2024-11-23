@@ -45,24 +45,24 @@ bool hasGameSafe = false, hasSpoofedLibs = false;
 
 std::map<std::string, std::list<std::tuple<uintptr_t, uintptr_t, size_t>>> spoofedLibs;
 
-void* spoofBoundScanTarget(void* at, size_t len) {
+void* spoofScanTarget(void* at, size_t len) {
 	char* lib = wherethis(at);
 	if (lib) {
 		auto it = spoofedLibs.find(lib);
 		if (it != spoofedLibs.end()) {
 			LOGI("`%s` was found in spoofed target libs.", lib);
 			auto& list = it->second;
-			auto itt = std::find_if(list.begin(), list.end(), [at](const std::tuple<uintptr_t, uintptr_t, size_t>& block) {
-				return std::get<0>(block) == (uintptr_t) at;
+			auto itt = std::find_if(list.begin(), list.end(), [at, len](const std::tuple<uintptr_t, uintptr_t, size_t>& block) {
+				return std::get<0>(block) <= (uintptr_t) at && std::get<0>(block) + std::get<2>(block) >= (uintptr_t) at + len;
 			});
 			if (itt != list.end()) {
-				LOGI("Scan[%p (size = [%zu]) -> [%p (size = [%zu])]", at, len, (void*) std::get<1>(*itt), std::get<2>(*itt));
+				LOGI("Scan[(%s + %p) (size = [%zu]) -> [%p (size = [%zu])]", lib, (void*) ((uintptr_t) at - std::get<0>(*itt)), len, (void*) std::get<1>(*itt), std::get<2>(*itt));
 				return (void*) std::get<1>(*itt);
 			} else {
 				LOGW("Unsupported scan on block [%p]!", at);
 			}
 		} else {
-			LOGI("`%s` was not found in spoofed target libs!");
+			LOGI("`%s` was not found in spoofed target libs!", lib);
 		}
 	}
 	return at;
@@ -80,7 +80,7 @@ unsigned int mazokuParcelCreateMemABacked(const void* src, unsigned int len) {
 	} else {
 		//LOGI("[MemoryBackedScan]: ???(%p) [size=%ud]", src, len);
 	}
-	return anoParcelCreateMemABacked(src, len);
+	return anoParcelCreateMemABacked(spoofScanTarget((void*) src, len), len);
 }
 
 unsigned int (*anoParcelCreateMemBBacked)(const void* src, unsigned int len);
@@ -91,7 +91,7 @@ unsigned int mazokuParcelCreateMemBBacked(const void* src, unsigned int len) {
 	} else {
 		//LOGI("[MemoryBackedScan]: ???(%p) [size=%ud]", src, len);
 	}
-	return anoParcelCreateMemABacked(src, len);
+	return anoParcelCreateMemABacked(spoofScanTarget((void*) src, len), len);
 }
 
 unsigned int (*unityProxy)(int attestationKey, void* src, size_t len);
@@ -102,7 +102,7 @@ unsigned int mazokuProxy(int attestationKey, void* src, size_t len) {
 	} else {
 		LOGI("[UnityProxy]: ???(%p) [size=%zud]", src, len);
 	}
-	return unityProxy(attestationKey, src, len);
+	return unityProxy(attestationKey, spoofScanTarget((void*) src, len), len);
 }
 
 unsigned int (*anoParcelProxy)(void*);
