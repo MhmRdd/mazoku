@@ -71,9 +71,11 @@ private:
 		}
     }
 
-	void postSpecialize() {
+	void postSpecialize() const {
 		if (isMazokuTarget)
 			std::thread(mazoku_runtime).detach();
+		else
+			api->setOption(zygisk::Option::DLCLOSE_MODULE_LIBRARY);
 	}
 
 };

@@ -45,11 +45,55 @@ unsigned int (*anoParcelCreateMemABacked)(const void* src, unsigned int len);
 unsigned int mazokuParcelCreateMemABacked(const void* src, unsigned int len) {
 	char* lib = wherethis(src);
 	if (lib) {
-		LOGI("[MemoryBackedScan]: %s(%p) [size=%ud]", lib, src, len);
+		//LOGI("[MemoryBackedScan]: %s(%p) [size=%ud]", lib, src, len);
 	} else {
-		LOGI("[MemoryBackedScan]: ???(%p) [size=%ud]", src, len);
+		//LOGI("[MemoryBackedScan]: ???(%p) [size=%ud]", src, len);
 	}
 	return anoParcelCreateMemABacked(src, len);
+}
+
+unsigned int (*anoParcelCreateMemBBacked)(const void* src, unsigned int len);
+unsigned int mazokuParcelCreateMemBBacked(const void* src, unsigned int len) {
+	char* lib = wherethis(src);
+	if (lib) {
+		//LOGI("[MemoryBackedScan]: %s(%p) [size=%ud]", lib, src, len);
+	} else {
+		//LOGI("[MemoryBackedScan]: ???(%p) [size=%ud]", src, len);
+	}
+	return anoParcelCreateMemABacked(src, len);
+}
+
+unsigned int (*unityProxy)(int attestationKey, void* src, size_t len);
+unsigned int mazokuProxy(int attestationKey, void* src, size_t len) {
+	char* lib = wherethis(src);
+	if (lib) {
+		LOGI("[UnityProxy]: %s(%p) [size=%zud]", lib, src, len);
+	} else {
+		LOGI("[UnityProxy]: ???(%p) [size=%zud]", src, len);
+	}
+	return unityProxy(attestationKey, src, len);
+}
+
+unsigned int (*anoParcelProxy)(void*);
+unsigned int mazokuParcelProxy(void* unityNS) {
+	uintptr_t proxyloc = (unityNS &&
+						*reinterpret_cast<uintptr_t*>(reinterpret_cast<uintptr_t>(unityNS) + 0x10) &&
+						*reinterpret_cast<uintptr_t*>(*reinterpret_cast<uintptr_t*>(reinterpret_cast<uintptr_t>(unityNS) + 0x10) + 0x58) &&
+						*reinterpret_cast<uintptr_t*>(*reinterpret_cast<uintptr_t*>(*reinterpret_cast<uintptr_t*>(reinterpret_cast<uintptr_t>(unityNS) + 0x10) + 0x58)))
+						? *reinterpret_cast<uintptr_t*>(*reinterpret_cast<uintptr_t*>(*reinterpret_cast<uintptr_t*>(reinterpret_cast<uintptr_t>(unityNS) + 0x10) + 0x58)) + 0x8
+						: 0;
+	if (proxyloc) {
+		uintptr_t proxy = *(uintptr_t*) proxyloc;
+		if (!unityProxy)
+			unityProxy = (unsigned int (*)(int, void *, size_t))(proxy);
+		if (reinterpret_cast<unsigned int (*)(int, void *, size_t)>(proxy) == unityProxy) {
+			LOGI("Updated proxy[%p -> %p] to mazokuProxy[%p].", (void*) proxyloc, (void*) proxy, mazokuProxy);
+			*(uintptr_t*) proxyloc = reinterpret_cast<uintptr_t>(mazokuProxy);
+		}
+	} else {
+		LOGE("Unable to locate proxy function from libunity.so!");
+	}
+	return anoParcelProxy(unityNS);
 }
 
 void init_callback(uintptr_t start, uintptr_t end, const char* perms,
@@ -88,15 +132,15 @@ bool seekpatch(unsigned int id, void* code, int size)
 		index = std::distance(spid.begin(), it);
 	} else
 		return false;
-	LOGI("index = %ld", index);
 	switch (index) {
 		case SPT_MEMHASH_A:
 			A64HookFunction((void*) ((uintptr_t) code + 820), (void*) mazokuParcelCreateMemABacked, (void**) &anoParcelCreateMemABacked);
 			break;
 		case SPT_MEMHASH_B:
+			A64HookFunction((void*) ((uintptr_t) code + 696), (void*) mazokuParcelCreateMemBBacked, (void**) &anoParcelCreateMemBBacked);
 			break;
 		case SPT_PARCEL:
-
+			A64HookFunction((void*) (uintptr_t) code, (void*) mazokuParcelProxy, (void**) &anoParcelProxy);
 			break;
 		default:
 			return false;
