@@ -90,6 +90,7 @@ static void MazokuService(int fd)
 	char mazProp[] = "/data/adb/modules/zygisk_mazoku/module.prop";
 	char update[] = "/data/adb/modules/zygisk_mazoku/update";
 	char disable[] = "/data/adb/modules/zygisk_mazoku/disable";
+	char spoof_target_libs[] = "/data/adb/mazoku/spoof_target_libs.txt";
 	bool enable = true;
 	std::string oldDesc(getDescription(mazProp));
 	read(fd, &pid, sizeof(pid));
