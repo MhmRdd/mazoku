@@ -73,6 +73,10 @@ private:
 				api->setOption(zygisk::Option::DLCLOSE_MODULE_LIBRARY);
 			else
 				spoofTargetLibs = readstr(fd);
+			if (!strlen(spoofTargetLibs)) {
+				LOGI("Empty spoof_target_libs was provided, closing.");
+				isMazokuTarget = false;
+			}
 			close(fd);
 		}
     }
@@ -105,10 +109,11 @@ static void MazokuService(int fd)
 		return;
 	} else
 		write(fd, &enable, sizeof(enable));
-	FILE* stl = fopen(spoof_target_libs, "w+");
+	restl:
+	FILE* stl = fopen(spoof_target_libs, "r");
 	if (stl) {
 		long fs = filesize(stl);
-		char *buffer = (char *)malloc(file_size + 1);
+		char *buffer = (char *)malloc(fs + 1);
 		if (!buffer) {
 			LOGE("Error allocating memory");
 			fclose(stl);
@@ -121,6 +126,9 @@ static void MazokuService(int fd)
 		fclose(stl);
 	} else {
 		LOGE("Unable to open `%s`!", spoof_target_libs);
+		LOGE("Creating default `%s`...", spoof_target_libs);
+		fclose(fopen(spoof_target_libs, "w"));
+		goto restl;
 	}
 	LOGI("oldDesc.length() = [%zu]", oldDesc.length());
 	if (oldDesc.length() == 93)

@@ -11,6 +11,8 @@
 #include <sys/stat.h>
 #include <algorithm>
 #include "And64InlineHook.hpp"
+#include <map>
+#include <tuple>
 
 using namespace std;
 
@@ -36,7 +38,7 @@ typedef struct {
 	int 			unk_f;
 } Eo;
 
-bool hasGameSafe = false;
+bool hasGameSafe = false, hasSpoofedLibs = false;
 Aeo* (*anoGetExternalObjects)();
 unsigned int (*anoCreateSWBackedIntegrity)(int, unsigned char *, size_t);
 unsigned int (*anoCreateMemoryHashed)(const void*, unsigned int) = nullptr;
@@ -96,10 +98,34 @@ unsigned int mazokuParcelProxy(void* unityNS) {
 	return anoParcelProxy(unityNS);
 }
 
+std::map<std::string, std::tuple<uintptr_t, uintptr_t, size_t>> spoofedLibs;
+
 void init_callback(uintptr_t start, uintptr_t end, const char* perms,
 					 off_t offset, const char* dev,
 					 unsigned int inode, const char* file)
 {
+	const char* last_slash = strrchr(file, '/');
+	if (last_slash && strstr(last_slash, "/lib") && strstr(last_slash, ".so")) {
+		char* lib = static_cast<char *>(malloc(strlen(last_slash + 1) + 1));
+		if (lib) strcpy(lib, last_slash + 1);
+		auto it = spoofedLibs.find(lib);
+		if (it != spoofedLibs.end()) {
+			LOGI("Found `%s` in spoof_target_libs!", lib);
+			size_t len = start - end;
+			void* vmcpy = malloc(len);
+			if (!vmcpy) {
+				LOGE("Unable to allocate memory! (size = [%zu])", len);
+				return;
+			} else
+				memcpy(vmcpy, (void*) start, len);
+			std::tuple<uintptr_t, uintptr_t, size_t>& stl = it->second;
+			std::get<0>(stl) = start;
+			std::get<1>(stl) = (uintptr_t) vmcpy;
+			std::get<2>(stl) = len;
+			LOGI("Created software backed copy of `%s`!", lib);
+		}
+	} else
+		return;
 	if (strstr(file, "/libanogs.so") && is_elf(start)) {
 		hasGameSafe = true;
 		anoGetExternalObjects = (Aeo* (*)()) (start + 0x29AF48);
@@ -149,16 +175,23 @@ bool seekpatch(unsigned int id, void* code, int size)
 	return true;
 }
 
-void mazoku_runtime(char* spoofTargetLibs)
+void mazoku_runtime(const std::string& spoofTargetLibs)
 {
 	struct timespec loopnap{};
 	loopnap.tv_sec = 1;
 	loopnap.tv_nsec = 0;
-	while (!hasGameSafe) {
+	ssize_t start = 0, end;
+	std::string spoofedLib;
+	while ((end = spoofTargetLibs.find('\n')) != std::string::npos) {
+		spoofedLib = spoofTargetLibs.substr(start, end - start);
+		spoofedLibs[spoofedLib] = std::make_tuple(0, 0, 0);
+		start = end + 1;
+	}
+	while (!hasGameSafe && !hasSpoofedLibs) {
 		maps_pairs(init_callback);
 		nanosleep(&loopnap, nullptr);
 	}
-	LOGI("spoofTargetLibs [%s]", spoofTargetLibs);
+	LOGI("spoofTargetLibs [%s]", spoofTargetLibs.c_str());
 	LOGI("anoGetExternalObjects [%p]", anoGetExternalObjects);
 	LOGI("anoCreateSWBackedIntegrity [%p]", anoCreateSWBackedIntegrity);
 	Aeo* anoExtObjs = anoGetExternalObjects();
