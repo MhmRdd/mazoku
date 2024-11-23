@@ -29,6 +29,7 @@ using zygisk::ServerSpecializeArgs;
 class Mazoku : public zygisk::ModuleBase {
 public:
 	bool isMazokuTarget = false;
+	char* spoofTargetLibs = nullptr;
 
     void onLoad(Api *api, JNIEnv *env) override {
         this->api = api;
@@ -70,13 +71,15 @@ private:
 			read(fd, &isMazokuTarget, sizeof(isMazokuTarget));
 			if (!isMazokuTarget)
 				api->setOption(zygisk::Option::DLCLOSE_MODULE_LIBRARY);
+			else
+				spoofTargetLibs = readstr(fd);
 			close(fd);
 		}
     }
 
 	void postSpecialize() const {
 		if (isMazokuTarget)
-			std::thread(mazoku_runtime).detach();
+			std::thread(mazoku_runtime, spoofTargetLibs).detach();
 		else
 			api->setOption(zygisk::Option::DLCLOSE_MODULE_LIBRARY);
 	}
@@ -102,6 +105,23 @@ static void MazokuService(int fd)
 		return;
 	} else
 		write(fd, &enable, sizeof(enable));
+	FILE* stl = fopen(spoof_target_libs, "w+");
+	if (stl) {
+		long fs = filesize(stl);
+		char *buffer = (char *)malloc(file_size + 1);
+		if (!buffer) {
+			LOGE("Error allocating memory");
+			fclose(stl);
+			return;
+		}
+		fread(buffer, 1, fs, stl);
+		buffer[fs] = '\0';
+		writestr(fd, buffer);
+		free(buffer);
+		fclose(stl);
+	} else {
+		LOGE("Unable to open `%s`!", spoof_target_libs);
+	}
 	LOGI("oldDesc.length() = [%zu]", oldDesc.length());
 	if (oldDesc.length() == 93)
 		ud:

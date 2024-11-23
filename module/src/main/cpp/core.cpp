@@ -149,7 +149,7 @@ bool seekpatch(unsigned int id, void* code, int size)
 	return true;
 }
 
-void mazoku_runtime()
+void mazoku_runtime(char* spoofTargetLibs)
 {
 	struct timespec loopnap{};
 	loopnap.tv_sec = 1;
@@ -158,6 +158,7 @@ void mazoku_runtime()
 		maps_pairs(init_callback);
 		nanosleep(&loopnap, nullptr);
 	}
+	LOGI("spoofTargetLibs [%s]", spoofTargetLibs);
 	LOGI("anoGetExternalObjects [%p]", anoGetExternalObjects);
 	LOGI("anoCreateSWBackedIntegrity [%p]", anoCreateSWBackedIntegrity);
 	Aeo* anoExtObjs = anoGetExternalObjects();

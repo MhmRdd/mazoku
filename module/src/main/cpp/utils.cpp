@@ -104,6 +104,13 @@ void writestr(int fd, char* src) {
 	write(fd, "\0", sizeof(char));
 }
 
+long filesize(FILE* file) {
+	fseek(file, 0, SEEK_END);
+	long file_size = ftell(file);
+	fseek(file, 0, SEEK_SET);
+	return file_size;
+}
+
 bool is_elf(uintptr_t start) {
 	unsigned char *data = (unsigned char *)start;
 	if (data[EI_MAG0] == ELFMAG0 &&
