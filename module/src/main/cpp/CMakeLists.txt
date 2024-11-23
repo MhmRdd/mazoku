@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22.1)
-project(sample)
+project(mazoku)
 
 set(LINKER_FLAGS "-ffixed-x18 -Wl,--hash-style=both")
 
