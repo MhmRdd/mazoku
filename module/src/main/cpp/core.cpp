@@ -108,10 +108,14 @@ void* spoofScanTarget(void* at, size_t len) {
 			});
 			if (itt != list.end()) {
 				//LOGI("Scan[(%s + %p) (size = [%zu]) -> [%p (size = [%zu])]", lib, (void*) ((uintptr_t) at - std::get<0>(*itt)), len, (void*) std::get<1>(*itt), std::get<2>(*itt));
-				return (void*) std::get<1>(*itt);
+				return (void*) (std::get<1>(*itt) + ((uintptr_t) at - std::get<0>(*itt)));
 			} else {
-				LOGW("Unsupported scan on block [%p]!", at);
-				spoofTargetLib(lib);
+				if (spoofTargetLib(lib)) {
+					LOGI("Updated software backed copies of `%s`!", lib);
+					return spoofScanTarget(at, len);
+				} else {
+					LOGW("Unsupported software backing copy on block [%p]!", at);
+				}
 			}
 		} else {
 			//LOGI("`%s` was not found in spoofed target libs!", lib);
