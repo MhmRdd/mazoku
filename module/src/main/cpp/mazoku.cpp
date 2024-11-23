@@ -93,6 +93,7 @@ static void MazokuService(int fd)
 	bool enable = true;
 	std::string oldDesc(getDescription(mazProp));
 	read(fd, &pid, sizeof(pid));
+
 	procname = readstr(fd);
 	if (!access(update, F_OK) || !access(disable, F_OK)) {
 		enable = false;
