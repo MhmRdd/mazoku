@@ -19,10 +19,10 @@ set(LIBCXX_SOURCES
         functional.cpp
         future.cpp
         hash.cpp
-        #        ios.cpp
-        #        ios.instantiations.cpp
-        #        iostream.cpp
-        #        locale.cpp
+                ios.cpp
+                ios.instantiations.cpp
+                iostream.cpp
+                locale.cpp
         memory.cpp
         mutex.cpp
         mutex_destructor.cpp

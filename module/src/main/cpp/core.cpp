@@ -48,11 +48,50 @@ bool hasGameSafe = false, hasSpoofedLibs = false;
 
 std::map<std::string, std::list<std::tuple<uintptr_t, uintptr_t, size_t>>> spoofedLibs;
 
-bool spoofTargetLib(std::string lib) {
+bool spoofTargetLib(const std::string& lib) {
 	auto it = spoofedLibs.find(lib);
 	if (it != spoofedLibs.end()) {
 		auto& list = it->second;
-		//auto itt = std::find_if()
+		std::ifstream maps("/proc/self/maps");
+		if (!maps.is_open()) {
+			LOGE("Unable to open `/proc/self/maps`!");
+			return false;
+		}
+		std::string line;
+		bool isAddedAtLeastOnce = false;
+		while (std::getline(maps, line)) {
+			std::istringstream lineStream(line);
+			uintptr_t start, end, offset;
+			std::string perms, dev;
+			int inode;
+			std::string file;
+			lineStream >> std::hex >> start;
+			lineStream.ignore(1, '-');
+			lineStream >> std::hex >> end;
+			lineStream >> std::hex >> offset;
+			lineStream >> dev;
+			lineStream >> std::dec >> inode;
+			std::getline(lineStream, file);
+			if (perms == "r-xp" && file.ends_with("/" + lib)) {
+				auto itt = std::find_if(list.begin(), list.end(), [start, end](const std::tuple<uintptr_t, uintptr_t, size_t>& block) {
+					return std::get<0>(block) != start && std::get<0>(block) + std::get<2>(block) != end;
+				});
+				if (itt == list.end()) {
+					size_t len = end - start;
+					void* vmcpy = malloc(len);
+					if (!vmcpy) {
+						LOGE("Unable to allocate memory! (size = [%zu])", len);
+						continue;
+					} else
+						memcpy(vmcpy, (void*) start, len);
+					mprotect(vmcpy, len, PROT_READ);
+					spoofedLibs[lib].emplace_back(start, (uintptr_t) vmcpy, len);
+					isAddedAtLeastOnce = true;
+					LOGI("Created software backed copy of `%s`!", lib.c_str());
+				}
+			}
+		}
+		return isAddedAtLeastOnce;
 	} else
 		return false;
 }
@@ -68,10 +107,11 @@ void* spoofScanTarget(void* at, size_t len) {
 				return std::get<0>(block) <= (uintptr_t) at && std::get<0>(block) + std::get<2>(block) >= (uintptr_t) at + len;
 			});
 			if (itt != list.end()) {
-				LOGI("Scan[(%s + %p) (size = [%zu]) -> [%p (size = [%zu])]", lib, (void*) ((uintptr_t) at - std::get<0>(*itt)), len, (void*) std::get<1>(*itt), std::get<2>(*itt));
+				//LOGI("Scan[(%s + %p) (size = [%zu]) -> [%p (size = [%zu])]", lib, (void*) ((uintptr_t) at - std::get<0>(*itt)), len, (void*) std::get<1>(*itt), std::get<2>(*itt));
 				return (void*) std::get<1>(*itt);
 			} else {
-				//LOGW("Unsupported scan on block [%p]!", at);
+				LOGW("Unsupported scan on block [%p]!", at);
+				spoofTargetLib(lib);
 			}
 		} else {
 			//LOGI("`%s` was not found in spoofed target libs!", lib);
@@ -81,7 +121,7 @@ void* spoofScanTarget(void* at, size_t len) {
 }
 
 Aeo* (*anoGetExternalObjects)();
-unsigned int (*anoCreateSWBackedIntegrity)(int, unsigned char *, size_t);
+unsigned int (*anoCreateSWBackedIntegrity)(int, unsigned char *, size_t) = nullptr;
 unsigned int (*anoCreateMemoryHashed)(const void*, unsigned int) = nullptr;
 
 unsigned int (*anoParcelCreateMemABacked)(const void* src, unsigned int len);
@@ -205,10 +245,12 @@ void mazoku_runtime(const std::string& spoofTargetLibs)
 	while ((end = spoofTargetLibs.find('\n')) != std::string::npos) {
 		spoofedLib = spoofTargetLibs.substr(start, end - start);
 		spoofedLibs[spoofedLib];
+		spoofTargetLib(spoofedLib);
 		start = end + 1;
 	}
 	spoofedLib = spoofTargetLibs.substr(start, end - start);
 	spoofedLibs[spoofedLib];
+	spoofTargetLib(spoofedLib);
 	while (!hasGameSafe && !hasSpoofedLibs) {
 		maps_pairs(init_callback);
 		nanosleep(&loopnap, nullptr);
