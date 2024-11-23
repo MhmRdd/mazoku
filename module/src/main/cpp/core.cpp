@@ -4,6 +4,7 @@
 #define LOG_ON true
 #define LOGD(...) if (LOG_ON) __android_log_print(ANDROID_LOG_DEBUG, "mazoku", __VA_ARGS__)
 #define LOGE(...) if (LOG_ON) __android_log_print(ANDROID_LOG_ERROR, "mazoku", __VA_ARGS__)
+#define LOGW(...) if (LOG_ON) __android_log_print(ANDROID_LOG_WARN, "mazoku", __VA_ARGS__)
 #define LOGI(...) if (LOG_ON) __android_log_print(ANDROID_LOG_INFO, "mazoku", __VA_ARGS__)
 
 #include "utils.cpp"
@@ -13,6 +14,8 @@
 #include "And64InlineHook.hpp"
 #include <map>
 #include <tuple>
+#include <list>
+#include <sys/mman.h>
 
 using namespace std;
 
@@ -39,6 +42,32 @@ typedef struct {
 } Eo;
 
 bool hasGameSafe = false, hasSpoofedLibs = false;
+
+std::map<std::string, std::list<std::tuple<uintptr_t, uintptr_t, size_t>>> spoofedLibs;
+
+void* spoofBoundScanTarget(void* at, size_t len) {
+	char* lib = wherethis(at);
+	if (lib) {
+		auto it = spoofedLibs.find(lib);
+		if (it != spoofedLibs.end()) {
+			LOGI("`%s` was found in spoofed target libs.", lib);
+			auto& list = it->second;
+			auto itt = std::find_if(list.begin(), list.end(), [at](const std::tuple<uintptr_t, uintptr_t, size_t>& block) {
+				return std::get<0>(block) == (uintptr_t) at;
+			});
+			if (itt != list.end()) {
+				LOGI("Scan[%p (size = [%zu]) -> [%p (size = [%zu])]", at, len, (void*) std::get<1>(*itt), std::get<2>(*itt));
+				return (void*) std::get<1>(*itt);
+			} else {
+				LOGW("Unsupported scan on block [%p]!", at);
+			}
+		} else {
+			LOGI("`%s` was not found in spoofed target libs!");
+		}
+	}
+	return at;
+}
+
 Aeo* (*anoGetExternalObjects)();
 unsigned int (*anoCreateSWBackedIntegrity)(int, unsigned char *, size_t);
 unsigned int (*anoCreateMemoryHashed)(const void*, unsigned int) = nullptr;
@@ -98,8 +127,6 @@ unsigned int mazokuParcelProxy(void* unityNS) {
 	return anoParcelProxy(unityNS);
 }
 
-std::map<std::string, std::tuple<uintptr_t, uintptr_t, size_t>> spoofedLibs;
-
 void init_callback(uintptr_t start, uintptr_t end, const char* perms,
 					 off_t offset, const char* dev,
 					 unsigned int inode, const char* file)
@@ -109,7 +136,7 @@ void init_callback(uintptr_t start, uintptr_t end, const char* perms,
 		char* lib = static_cast<char *>(malloc(strlen(last_slash + 1) + 1));
 		if (lib) strcpy(lib, last_slash + 1);
 		auto it = spoofedLibs.find(lib);
-		if (it != spoofedLibs.end()) {
+		if (!strcmp(perms, "r-xp") && it != spoofedLibs.end()) {
 			LOGI("Found `%s` in spoof_target_libs!", lib);
 			size_t len = end - start;
 			void* vmcpy = malloc(len);
@@ -118,10 +145,8 @@ void init_callback(uintptr_t start, uintptr_t end, const char* perms,
 				return;
 			} else
 				memcpy(vmcpy, (void*) start, len);
-			std::tuple<uintptr_t, uintptr_t, size_t>& stl = it->second;
-			std::get<0>(stl) = start;
-			std::get<1>(stl) = (uintptr_t) vmcpy;
-			std::get<2>(stl) = len;
+			mprotect(vmcpy, len, PROT_READ);
+			spoofedLibs[lib].emplace_back(start, (uintptr_t) vmcpy, len);
 			LOGI("Created software backed copy of `%s`!", lib);
 		}
 	} else
@@ -185,11 +210,11 @@ void mazoku_runtime(const std::string& spoofTargetLibs)
 	LOGI("spoofTargetLibs [%s]", spoofTargetLibs.c_str());
 	while ((end = spoofTargetLibs.find('\n')) != std::string::npos) {
 		spoofedLib = spoofTargetLibs.substr(start, end - start);
-		spoofedLibs[spoofedLib] = std::make_tuple(0, 0, 0);
+		spoofedLibs[spoofedLib];
 		start = end + 1;
 	}
 	spoofedLib = spoofTargetLibs.substr(start, end - start);
-	spoofedLibs[spoofedLib] = std::make_tuple(0, 0, 0);
+	spoofedLibs[spoofedLib];
 	while (!hasGameSafe && !hasSpoofedLibs) {
 		maps_pairs(init_callback);
 		nanosleep(&loopnap, nullptr);
