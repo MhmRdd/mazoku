@@ -182,11 +182,14 @@ void mazoku_runtime(const std::string& spoofTargetLibs)
 	loopnap.tv_nsec = 0;
 	ssize_t start = 0, end;
 	std::string spoofedLib;
+	LOGI("%s", spoofTargetLibs.c_str());
 	while ((end = spoofTargetLibs.find('\n')) != std::string::npos) {
 		spoofedLib = spoofTargetLibs.substr(start, end - start);
 		spoofedLibs[spoofedLib] = std::make_tuple(0, 0, 0);
 		start = end + 1;
 	}
+	spoofedLib = spoofTargetLibs.substr(start, end - start);
+	spoofedLibs[spoofedLib] = std::make_tuple(0, 0, 0);
 	while (!hasGameSafe && !hasSpoofedLibs) {
 		maps_pairs(init_callback);
 		nanosleep(&loopnap, nullptr);
