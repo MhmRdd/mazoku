@@ -69,7 +69,7 @@ char* readstr(int fd) {
 	size_t capacity = 16;
 	result = (char*) malloc(capacity);
 	if (result == NULL) {
-		perror("Memory allocation failed!");
+		LOGE("Memory allocation failed!");
 		return NULL;
 	}
 	char buffer;
@@ -82,7 +82,7 @@ char* readstr(int fd) {
 			capacity *= 2;
 			char *temp = (char*) realloc(result, capacity);
 			if (temp == NULL) {
-				perror("Memory reallocation failed!");
+				LOGE("Memory reallocation failed!");
 				free(result);
 				return NULL;
 			}
@@ -91,12 +91,17 @@ char* readstr(int fd) {
 		result[length++] = buffer;
 	}
 	if (bytesRead < 0) {
-		perror("Read error!");
+		LOGE("Read error!");
 		free(result);
 		return NULL;
 	}
 	result[length] = '\0';
 	return result;
+}
+
+void writestr(int fd, char* src) {
+	write(fd, src, strlen(src));
+	write(fd, "\0", sizeof(char));
 }
 
 bool is_elf(uintptr_t start) {

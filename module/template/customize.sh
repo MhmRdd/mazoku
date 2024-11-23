@@ -49,6 +49,7 @@ if [ ! -f "$TMPDIR/verify.sh" ]; then
   abort    "*********************************************************"
 fi
 . "$TMPDIR/verify.sh"
+
 extract "$ZIPFILE" 'customize.sh'  "$TMPDIR/.vunzip"
 extract "$ZIPFILE" 'verify.sh'     "$TMPDIR/.vunzip"
 extract "$ZIPFILE" 'sepolicy.rule' "$TMPDIR"
@@ -59,20 +60,25 @@ extract "$ZIPFILE" 'post-fs-data.sh' "$MODPATH"
 extract "$ZIPFILE" 'service.sh'      "$MODPATH"
 mv "$TMPDIR/sepolicy.rule" "$MODPATH"
 
-HAS32BIT=false && [ $(getprop ro.product.cpu.abilist32) ] && HAS32BIT=true
-
 mkdir "$MODPATH/zygisk"
 
-if [ "$ARCH" = "x86" ] || [ "$ARCH" = "x64" ]; then
-  ui_print "*********************************************************"
-  ui_print "! This architecture is not supported yet!"
-  abort    "*********************************************************"
-else
-  #if [ "$HAS32BIT" = true ]; then
-  #  extract "$ZIPFILE" "lib/armeabi-v7a/lib$SONAME.so" "$MODPATH/zygisk" true
-  #  mv "$MODPATH/zygisk/lib$SONAME.so" "$MODPATH/zygisk/armeabi-v7a.so"
-  #fi
+if [ "$ARCH" = "arm64" ]; then
   ui_print "- Extracting arm64 libraries"
   extract "$ZIPFILE" "lib/arm64-v8a/lib$SONAME.so" "$MODPATH/zygisk" true
   mv "$MODPATH/zygisk/lib$SONAME.so" "$MODPATH/zygisk/arm64-v8a.so"
 fi
+
+CONFIG_DIR=/data/adb/mazoku
+if [ ! -d "$CONFIG_DIR" ]; then
+  ui_print "- Creating configuration directory"
+  mkdir -p "$CONFIG_DIR"
+fi
+if [ ! -f "$CONFIG_DIR/spoof_target_libs.txt" ]; then
+  ui_print "- Adding default target scope"
+  extract "$ZIPFILE" "spoof_target_libs.txt" "$TMPDIR"
+  mv "$TMPDIR/spoof_target_libs.txt" "$CONFIG_DIR/spoof_target_libs.txt"
+fi
+
+set_perm_recursive "$MODPATH" 0 0 0755 0644
+
+ui_print "- 当月光洒在银色的湖面上，一条道路会为那些决心前行的人显现出来。"

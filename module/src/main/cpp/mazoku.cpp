@@ -20,6 +20,7 @@
 #include "zygisk.hpp"
 
 #include "core.cpp"
+#include "emoji.h"
 
 using zygisk::Api;
 using zygisk::AppSpecializeArgs;
@@ -59,14 +60,16 @@ private:
 		if (!strcmp(process, "com.activision.callofduty.shooter")) {
 			int pid = getpid();
 			int fd = api->connectCompanion();
-			write(fd, &pid, sizeof(pid));
-			write(fd, process, strlen(process));
 			if (fd == -1) {
 				api->setOption(zygisk::Option::DLCLOSE_MODULE_LIBRARY);
 				LOGE("Cannot obtain valid file descriptor for companion!");
 				return;
 			}
-			isMazokuTarget = true;
+			write(fd, &pid, sizeof(pid));
+			writestr(fd, (char*) process);
+			read(fd, &isMazokuTarget, sizeof(isMazokuTarget));
+			if (!isMazokuTarget)
+				api->setOption(zygisk::Option::DLCLOSE_MODULE_LIBRARY);
 			close(fd);
 		}
     }
@@ -85,13 +88,23 @@ static void MazokuService(int fd)
 	int pid;
 	char* procname;
 	char mazProp[] = "/data/adb/modules/zygisk_mazoku/module.prop";
+	char update[] = "/data/adb/modules/zygisk_mazoku/update";
+	char disable[] = "/data/adb/modules/zygisk_mazoku/disable";
+	bool enable = true;
+	std::string oldDesc(getDescription(mazProp));
 	read(fd, &pid, sizeof(pid));
 	procname = readstr(fd);
-	std::string oldDesc(getDescription(mazProp));
+	if (!access(update, F_OK) || !access(disable, F_OK)) {
+		enable = false;
+		write(fd, &enable, sizeof(enable));
+		updateDescription(mazProp, emoji::emojize("[:x: Mazoku is disabled/updated!] ").c_str());
+		return;
+	} else
+		write(fd, &enable, sizeof(enable));
 	LOGI("oldDesc.length() = [%zu]", oldDesc.length());
 	if (oldDesc.length() == 93)
 		ud:
-		updateDescription(mazProp, (std::string("[\U0001F60B Mazoku is working!] (") + std::string(procname) + ":" + std::to_string(pid) + ") " + oldDesc).c_str());
+		updateDescription(mazProp, (std::string(emoji::emojize("[:yum:  Mazoku is working!] (")) + std::string(procname) + ":" + std::to_string(pid) + ") " + oldDesc).c_str());
 	else {
 		oldDesc = "当月光洒在银色的湖面上，一条道路会为那些决心前行的人显现出来。";
 		goto ud;
