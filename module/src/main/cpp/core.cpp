@@ -14,7 +14,7 @@
 #include "And64InlineHook.hpp"
 #include <map>
 #include <tuple>
-#include <list>
+#include <set>
 #include <sys/mman.h>
 #include <fstream>
 #include <sstream>
@@ -46,80 +46,75 @@ typedef struct {
 
 bool hasGameSafe = false, hasSpoofedLibs = false;
 
-std::map<std::string, std::list<std::tuple<uintptr_t, uintptr_t, size_t>>> spoofedLibs;
+std::map<std::string, std::set<std::tuple<uintptr_t, uintptr_t, size_t>>> spoofedLibs;
 
 bool spoofTargetLib(const std::string& lib) {
 	auto it = spoofedLibs.find(lib);
+	bool isAddedAtLeastOnce = false;
 	if (it != spoofedLibs.end()) {
-		auto& list = it->second;
+		auto &list = it->second;
 		std::ifstream maps("/proc/self/maps");
 		if (!maps.is_open()) {
 			LOGE("Unable to open `/proc/self/maps`!");
 			return false;
 		}
 		std::string line;
-		bool isAddedAtLeastOnce = false;
 		while (std::getline(maps, line)) {
-			std::istringstream lineStream(line);
-			uintptr_t start, end, offset;
-			std::string perms, dev;
-			int inode;
-			std::string file;
-			lineStream >> std::hex >> start;
-			lineStream.ignore(1, '-');
-			lineStream >> std::hex >> end;
-			lineStream >> std::hex >> offset;
-			lineStream >> dev;
-			lineStream >> std::dec >> inode;
-			std::getline(lineStream, file);
+			size_t pos1 = line.find('-');
+			size_t pos2 = line.find(' ', pos1);
+			size_t pos3 = line.find(' ', pos2 + 1);
+			size_t pos4 = line.find(' ', pos3 + 1);
+			size_t pos5 = line.find(' ', pos4 + 1);
+			size_t pos6 = line.find(' ', pos5 + 1);
+			std::string start_str = line.substr(0, pos1);
+			std::string end_str = line.substr(pos1 + 1, pos2 - pos1 - 1);
+			std::string perms = line.substr(pos2 + 1, pos3 - pos2 - 1);
+			std::string offset_str = line.substr(pos3 + 1, pos4 - pos3 - 1);
+			std::string dev = line.substr(pos4 + 1, pos5 - pos4 - 1);
+			std::string inode_str = line.substr(pos5 + 1, pos6 - pos5 - 1);
+			std::string file = (pos6 != std::string::npos) ? line.substr(pos6 + 1) : "";
+			uintptr_t start = std::stoul(start_str, nullptr, 16);
+			uintptr_t end = std::stoul(end_str, nullptr, 16);
+			off_t offset = std::stoll(offset_str, nullptr, 16);
+			unsigned int inode = std::stoul(inode_str);
+			//LOGI("%s", line.c_str());
 			if (perms == "r-xp" && file.ends_with("/" + lib)) {
-				auto itt = std::find_if(list.begin(), list.end(), [start, end](const std::tuple<uintptr_t, uintptr_t, size_t>& block) {
-					return std::get<0>(block) != start && std::get<0>(block) + std::get<2>(block) != end;
-				});
-				if (itt == list.end()) {
-					size_t len = end - start;
-					void* vmcpy = malloc(len);
-					if (!vmcpy) {
-						LOGE("Unable to allocate memory! (size = [%zu])", len);
-						continue;
-					} else
-						memcpy(vmcpy, (void*) start, len);
-					mprotect(vmcpy, len, PROT_READ);
-					spoofedLibs[lib].emplace_back(start, (uintptr_t) vmcpy, len);
-					isAddedAtLeastOnce = true;
-					LOGI("Created software backed copy of `%s`[%p-%p]!", lib.c_str(), (void*) start, (void*) end);
+				size_t len = end - start;
+				for (const auto& deny : it->second) {
+					if (std::get<0>(deny) == start && std::get<0>(deny) + std::get<2>(deny) == end)
+						return false;
 				}
+				void *vmcpy = malloc(len);
+				if (!vmcpy) {
+					LOGE("Unable to allocate memory! (size = [%zu])", len);
+					continue;
+				} else
+					memcpy(vmcpy, (void *) start, len);
+				mprotect(vmcpy, len, PROT_READ);
+				it->second.emplace(start, (uintptr_t) vmcpy, len);
+				isAddedAtLeastOnce = true;
+				LOGI("Created software backed copy of `%s`[%p-%p]!", lib.c_str(),
+					 (void *) start, (void *) end);
 			}
 		}
-		return isAddedAtLeastOnce;
-	} else
-		return false;
+	}
+	return isAddedAtLeastOnce;
 }
 
-void* spoofScanTarget(void* at, size_t len) {
+void *spoofScanTarget(void *at, size_t len) {
 	char* lib = wherethis(at);
 	if (lib) {
-		auto it = spoofedLibs.find(lib);
-		if (it != spoofedLibs.end()) {
-			//LOGI("`%s` was found in spoofed target libs.", lib);
-			auto& list = it->second;
-			auto itt = std::find_if(list.begin(), list.end(), [at, len](const std::tuple<uintptr_t, uintptr_t, size_t>& block) {
-				return std::get<0>(block) <= (uintptr_t) at && std::get<0>(block) + std::get<2>(block) >= (uintptr_t) at + len;
-			});
-			if (itt != list.end()) {
-				//LOGI("Scan[(%s + %p) (size = [%zu]) -> [%p (size = [%zu])]", lib, (void*) ((uintptr_t) at - std::get<0>(*itt)), len, (void*) std::get<1>(*itt), std::get<2>(*itt));
-				return (void*) (std::get<1>(*itt) + ((uintptr_t) at - std::get<0>(*itt)));
-			} else {
-				if (spoofTargetLib(lib)) {
-					LOGI("Updated software backed copies of `%s`!", lib);
-					return spoofScanTarget(at, len);
-				} else {
-					LOGW("Unsupported software backing copy on block [%p]!", at);
+		for (const auto& [slib, denylist] : spoofedLibs) {
+			if (lib == slib) {
+				for (const auto& deny : denylist) {
+					if (std::get<0>(deny) <= (uintptr_t) at && std::get<0>(deny) + std::get<2>(deny) >= (uintptr_t) at + len) {
+						LOGI("Scan[(%s + %p) (size = [%zu]) -> [%p (size = [%zu])]", lib, (void*) ((uintptr_t) at - std::get<0>(deny)), len, (void*) std::get<1>(deny), std::get<2>(deny));
+						return (void*) (std::get<1>(deny) + ((uintptr_t) at - std::get<0>(deny)));
+					}
 				}
 			}
-		} else {
-			//LOGI("`%s` was not found in spoofed target libs!", lib);
 		}
+		//LOGI("`%s` was found in spoofed target libs.", lib);
 	}
 	return at;
 }
@@ -226,6 +221,10 @@ void mazoku_runtime(const std::string& spoofTargetLibs)
 	ssize_t start = 0, end;
 	std::string spoofedLib;
 	LOGI("spoofTargetLibs [%s]", spoofTargetLibs.c_str());
+	while (!hasGameSafe && !hasSpoofedLibs) {
+		maps_pairs(init_callback);
+		nanosleep(&loopnap, nullptr);
+	}
 	while ((end = spoofTargetLibs.find('\n')) != std::string::npos) {
 		spoofedLib = spoofTargetLibs.substr(start, end - start);
 		spoofedLibs[spoofedLib];
@@ -235,10 +234,6 @@ void mazoku_runtime(const std::string& spoofTargetLibs)
 	spoofedLib = spoofTargetLibs.substr(start, end - start);
 	spoofedLibs[spoofedLib];
 	spoofTargetLib(spoofedLib);
-	while (!hasGameSafe && !hasSpoofedLibs) {
-		maps_pairs(init_callback);
-		nanosleep(&loopnap, nullptr);
-	}
 	LOGI("anoGetExternalObjects [%p]", anoGetExternalObjects);
 	LOGI("anoCreateSWBackedIntegrity [%p]", anoCreateSWBackedIntegrity);
 	Aeo* anoExtObjs = anoGetExternalObjects();
