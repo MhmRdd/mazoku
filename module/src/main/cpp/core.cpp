@@ -113,7 +113,7 @@ void *spoofScanTarget(void *at, size_t len) {
 			if (lib == slib) {
 				for (const auto& deny : denylist) {
 					if (std::get<0>(deny) <= (uintptr_t) at && std::get<0>(deny) + std::get<2>(deny) >= (uintptr_t) at + len) {
-						LOGI("Scan[(%s + %p) (size = [%zu]) -> [%p (size = [%zu])]", lib, (void*) ((uintptr_t) at - std::get<0>(deny)), len, (void*) std::get<1>(deny), std::get<2>(deny));
+						//LOGI("Scan[(%s + %p) (size = [%zu]) -> [%p (size = [%zu])]", lib, (void*) ((uintptr_t) at - std::get<0>(deny)), len, (void*) std::get<1>(deny), std::get<2>(deny));
 						return (void*) (std::get<1>(deny) + ((uintptr_t) at - std::get<0>(deny)));
 					}
 				}
@@ -127,6 +127,10 @@ void *spoofScanTarget(void *at, size_t len) {
 Aeo* (*anoGetExternalObjects)();
 unsigned int (*anoCreateSWBackedIntegrity)(int, unsigned char *, size_t) = nullptr;
 unsigned int (*anoCreateMemoryHashed)(const void*, unsigned int) = nullptr;
+
+unsigned int mazokuCreateMemoryHashed(const void* src, unsigned int len) {
+	return anoCreateMemoryHashed(spoofScanTarget((void*) src, len), len);
+}
 
 unsigned int (*anoParcelCreateMemABacked)(const void* src, unsigned int len);
 unsigned int mazokuParcelCreateMemABacked(const void* src, unsigned int len) {
@@ -165,6 +169,20 @@ unsigned int mazokuParcelProxy(void* unityNS) {
 	return anoParcelProxy(unityNS);
 }
 
+void (*anoParcelCreateMemCBacked)();
+__attribute__((naked)) void mazokuParcelCreateMemCBacked() {
+	asm volatile (
+			"mov	x0, x21\n"
+			"mov	x8, %0\n"
+			"blr	x8\n"
+			"mov	x8, %1\n"
+			"br		x8"
+			:
+			: "r" (mazokuCreateMemoryHashed), "r" (anoParcelCreateMemCBacked)
+			: "x8"
+			);
+}
+
 void init_callback(uintptr_t start, uintptr_t end, const char* perms,
 					 off_t offset, const char* dev,
 					 unsigned int inode, const char* file)
@@ -179,7 +197,8 @@ void init_callback(uintptr_t start, uintptr_t end, const char* perms,
 std::vector<unsigned int> spid = {
 		0x65ed4aa9,
 		0x29e97f13,
-		0x8852e992
+		0x8852e992,
+		0xab060544
 };
 
 std::vector<unsigned int> sped = {};
@@ -187,7 +206,8 @@ std::vector<unsigned int> sped = {};
 enum SPTAG {
 	SPT_MEMHASH_A,
 	SPT_MEMHASH_B,
-	SPT_PARCEL
+	SPT_PARCEL,
+	SPT_MEMHASH_C
 };
 
 bool seekpatch(unsigned int id, void* code, int size)
@@ -210,6 +230,18 @@ bool seekpatch(unsigned int id, void* code, int size)
 			break;
 		case SPT_PARCEL:
 			A64HookFunction((void*) (uintptr_t) code, (void*) mazokuParcelProxy, (void**) &anoParcelProxy);
+			break;
+		case SPT_MEMHASH_C:
+			while (!anoCreateMemoryHashed)
+				anoCreateMemoryHashed = reinterpret_cast<unsigned int (*)(const void *, unsigned int)>(*(uintptr_t*)((uintptr_t) code + 4840));
+			if (anoCreateMemoryHashed != reinterpret_cast<unsigned int (*)(const void *, unsigned int)>(*(uintptr_t*)((uintptr_t) code + 4840))) {
+				LOGE("Unknown memory hashing function!");
+				return false;
+			}
+			*(uint32_t*)((uintptr_t) code + 3808) = 0x58000048u;		// LDR X8, #0x8
+			*(uint32_t*)((uintptr_t) code + 3808 + 4) = 0xD61F0100u;	// BR X8
+			anoParcelCreateMemCBacked = reinterpret_cast<void (*)()>((uintptr_t) code + 3808 + 16); // Continuous function call
+			*(uintptr_t*)((uintptr_t) code + 3808 + 8) = reinterpret_cast<uintptr_t>(mazokuParcelCreateMemCBacked); // Set hook address
 			break;
 		default:
 			return false;
