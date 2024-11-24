@@ -80,10 +80,15 @@ bool spoofTargetLib(const std::string& lib) {
 			//LOGI("%s", line.c_str());
 			if (perms == "r-xp" && file.ends_with("/" + lib)) {
 				size_t len = end - start;
+				bool isFoundInDenylist = false;
 				for (const auto& deny : it->second) {
-					if (std::get<0>(deny) == start && std::get<0>(deny) + std::get<2>(deny) == end)
-						return false;
+					if (std::get<0>(deny) == start && std::get<0>(deny) + std::get<2>(deny) == end) {
+						isFoundInDenylist = true;
+						break;
+					}
 				}
+				if (isFoundInDenylist)
+					continue;
 				void *vmcpy = malloc(len);
 				if (!vmcpy) {
 					LOGE("Unable to allocate memory! (size = [%zu])", len);
