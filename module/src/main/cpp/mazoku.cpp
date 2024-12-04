@@ -39,14 +39,14 @@ public:
     void preAppSpecialize(AppSpecializeArgs *args) override {
         // Use JNI to fetch our process name
         const char *process = env->GetStringUTFChars(args->nice_name, nullptr);
-		const char *app_data = env->GetStringUTFChars(args->app_data_dir, nullptr);
-        preSpecialize(process, app_data);
+        preSpecialize(process);
         env->ReleaseStringUTFChars(args->nice_name, process);
-		env->ReleaseStringUTFChars(args->app_data_dir, app_data);
     }
 
 	void postAppSpecialize(const AppSpecializeArgs *args) override {
-		postSpecialize();
+		const char *process = env->GetStringUTFChars(args->nice_name, nullptr);
+		postSpecialize(process);
+		env->ReleaseStringUTFChars(args->nice_name, process);
 	}
 
     void preServerSpecialize(ServerSpecializeArgs *args) override {
@@ -57,7 +57,7 @@ private:
     Api *api;
     JNIEnv *env;
 
-    void preSpecialize(const char *process, const char *app_data) {
+    void preSpecialize(const char *process) {
 		if (!strcmp(process, "com.activision.callofduty.shooter")) {
 			int pid = getpid();
 			int fd = api->connectCompanion();
@@ -81,9 +81,9 @@ private:
 		}
     }
 
-	void postSpecialize() const {
+	void postSpecialize(const char* process) const {
 		if (isMazokuTarget)
-			std::thread(mazoku_runtime, spoofTargetLibs).detach();
+			std::thread(mazoku_runtime, spoofTargetLibs, process).detach();
 		else
 			api->setOption(zygisk::Option::DLCLOSE_MODULE_LIBRARY);
 	}

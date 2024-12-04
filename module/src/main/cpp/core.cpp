@@ -6,6 +6,7 @@
 #define LOGE(...) if (LOG_ON) __android_log_print(ANDROID_LOG_ERROR, "mazoku", __VA_ARGS__)
 #define LOGW(...) if (LOG_ON) __android_log_print(ANDROID_LOG_WARN, "mazoku", __VA_ARGS__)
 #define LOGI(...) if (LOG_ON) __android_log_print(ANDROID_LOG_INFO, "mazoku", __VA_ARGS__)
+#define LOGF(...) if (LOG_ON) __android_log_print(ANDROID_LOG_FATAL, "mazoku", __VA_ARGS__)
 
 #include "utils.cpp"
 #include <string>
@@ -19,6 +20,10 @@
 #include <fstream>
 #include <sstream>
 #include <iomanip>
+#include <filesystem>
+#include <dlfcn.h>
+
+namespace fs = std::filesystem;
 
 using namespace std;
 
@@ -46,9 +51,83 @@ typedef struct {
 
 bool hasGameSafe = false, hasSpoofedLibs = false;
 
+std::string spoofDir;
+std::map<std::string, bool> spoofFromFiles;
 std::map<std::string, std::set<std::tuple<uintptr_t, uintptr_t, size_t>>> spoofedLibs;
+std::map<std::string, uintptr_t> handles;
 
-bool spoofTargetLib(const std::string& lib) {
+bool chkSpoofLibByFiles(std::string& lib) {
+	if (lib.empty())
+		return false;
+	if (lib.back() == '?') {
+		lib.pop_back();
+		if (!spoofDir.empty())
+			spoofFromFiles[lib] = true;
+		else {
+			LOGE("Unexpected empty spoofing directory, disabling HW backed proof!");
+			return false;
+		}
+		return true;
+	} else if (spoofFromFiles.find(lib) != spoofFromFiles.end())
+		return true;
+	return false;
+}
+
+bool writeTargetLibByFiles(std::string& lib, int index, void* src, size_t len) {
+	if (!chkSpoofLibByFiles(lib))
+		return false;
+	std::string spoofedBlock = spoofDir + lib + "." + std::to_string(index);
+	std::ofstream vmblock(spoofedBlock, std::ios::binary | std::ios::ate);
+	if (!vmblock.is_open()) {
+		LOGE("Unable to open `%s`!", spoofedBlock.c_str());
+		return false;
+	}
+	vmblock.write(reinterpret_cast<char*>(src), len);
+	if (vmblock) {
+		LOGI("Created hardware backed proof `%s`.", lib.c_str());
+		vmblock.close();
+		return true;
+	} else {
+		LOGE("Unable to read backed `%s`!", lib.c_str());
+		return false;
+	}
+}
+
+bool readTargetLibByFiles(std::string& lib, int index, void* cpy, size_t len) {
+	if (!chkSpoofLibByFiles(lib))
+		return false;
+	std::string spoofedBlock = spoofDir + lib + "." + std::to_string(index);
+	if (fs::is_regular_file(spoofedBlock)) {
+		std::ifstream vmblock(spoofedBlock, std::ios::binary | std::ios::ate);
+		if (!vmblock.is_open()) {
+			LOGE("Unable to open `%s`!", spoofedBlock.c_str());
+			return false;
+		}
+		auto vmlen = vmblock.tellg();
+		if (len != (size_t) vmlen) {
+			LOGE("Backed file size mismatches memory blocks!");
+			vmblock.close();
+			fs::remove(spoofedBlock);
+			return false;
+		}
+		vmblock.seekg(0, std::ios::beg);
+		vmblock.read(reinterpret_cast<char*>(cpy), vmlen);
+		if (vmblock) {
+			LOGI("Loaded hardware backed proof `%s`.", lib.c_str());
+			vmblock.close();
+			return true;
+		} else {
+			LOGE("Unable to read backed `%s`!", lib.c_str());
+			return false;
+		}
+	} else {
+		LOGW("No such hardware backed proof of `%s` was found.", lib.c_str());
+		fs::remove(spoofedBlock);
+		return false;
+	}
+}
+
+bool spoofTargetLib(std::string& lib) {
 	auto it = spoofedLibs.find(lib);
 	bool isAddedAtLeastOnce = false;
 	if (it != spoofedLibs.end()) {
@@ -59,6 +138,7 @@ bool spoofTargetLib(const std::string& lib) {
 			return false;
 		}
 		std::string line;
+		int index = 1;
 		while (std::getline(maps, line)) {
 			size_t pos1 = line.find('-');
 			size_t pos2 = line.find(' ', pos1);
@@ -78,7 +158,7 @@ bool spoofTargetLib(const std::string& lib) {
 			off_t offset = std::stoll(offset_str, nullptr, 16);
 			unsigned int inode = std::stoul(inode_str);
 			//LOGI("%s", line.c_str());
-			if (perms == "r-xp" && file.ends_with("/" + lib)) {
+			if ((perms == "r--p" || perms == "r-xp") && file.ends_with("/" + lib)) {
 				size_t len = end - start;
 				bool isFoundInDenylist = false;
 				for (const auto& deny : it->second) {
@@ -93,13 +173,33 @@ bool spoofTargetLib(const std::string& lib) {
 				if (!vmcpy) {
 					LOGE("Unable to allocate memory! (size = [%zu])", len);
 					continue;
-				} else
+				} else if (perms == "r--p") {
 					memcpy(vmcpy, (void *) start, len);
+					index--;
+				} else {
+					if (!readTargetLibByFiles(lib, index, vmcpy, len)) {
+						memcpy(vmcpy, (void *) start, len);
+						writeTargetLibByFiles(lib, index, vmcpy, len);
+					}
+					uint8_t* backedBlock = fsha256(std::string(spoofDir + lib + "." + std::to_string(index) + ".sha256").c_str());
+					if (backedBlock) {
+						uint8_t* hashedBlock = sha256(vmcpy, len);
+						if (!csha256(backedBlock, hashedBlock)) {
+							LOGE("Failed to verify `%s.%d`!", lib.c_str(), index);
+							kill(getpid(), SIGKILL);
+						} else {
+							LOGI("Verified `%s.%d`", lib.c_str(), index);
+						}
+						free(hashedBlock);
+						free(backedBlock);
+					}
+				}
 				mprotect(vmcpy, len, PROT_READ);
 				it->second.emplace(start, (uintptr_t) vmcpy, len);
 				isAddedAtLeastOnce = true;
 				LOGI("Created software backed copy of `%s`[%p-%p]!", lib.c_str(),
 					 (void *) start, (void *) end);
+				index++;
 			}
 		}
 	}
@@ -124,9 +224,59 @@ extern "C" void *spoofScanTarget(void *at, size_t len) {
 	return at;
 }
 
+std::map<void*, std::pair<void*, size_t>> safeAllocs;
+
+void srealloc(void** ptr, size_t len) {
+	void* src = *ptr;
+	void* cpy = malloc(len);
+	memcpy(cpy, src, len);
+	safeAllocs[cpy] = {src, len};
+	*ptr = cpy;
+}
+
+void sdealloc(void** ptr) {
+	void* cpy = *ptr;
+	for (const auto& orig : safeAllocs) {
+		if (orig.first == cpy) {
+			memcpy(orig.second.first, cpy, orig.second.second);
+			*ptr = orig.second.first;
+			safeAllocs.erase(orig.first);
+			free(orig.first);
+			return;
+		}
+	}
+}
+
+void mazoku_dzjm();
+
 Aeo* (*anoGetExternalObjects)();
 unsigned int (*anoCreateSWBackedIntegrity)(int, unsigned char *, size_t) = nullptr;
 unsigned int (*anoCreateMemoryHashed)(const void*, unsigned int) = nullptr;
+void* (*anoTreaters)() = nullptr;
+void* (*anoParam)(void*, unsigned int) = nullptr;
+ssize_t (*process_vm_readv)(pid_t, const struct iovec*, unsigned long, const struct iovec*, unsigned long, unsigned long) = nullptr;
+
+ssize_t mazoku_vm_readv(pid_t pid, const struct iovec* local_iov, unsigned long liovcnt, const struct iovec* remote_iov, unsigned long riovcnt, unsigned long flags) {
+	struct iovec mazoku_iov{};
+	mazoku_iov.iov_base = spoofScanTarget(remote_iov->iov_base, remote_iov->iov_len);
+	if (mazoku_iov.iov_base != remote_iov->iov_base) {
+		LOGI("[mazoku_vm] Futile scan replaced [%p -> %p]", remote_iov->iov_base, mazoku_iov.iov_base);
+		return process_vm_readv(pid, local_iov, liovcnt, &mazoku_iov, riovcnt, flags);
+	} else
+		return process_vm_readv(pid, local_iov, liovcnt, remote_iov, riovcnt, flags);
+}
+
+int (*anoCustomCall)(void*) = nullptr;
+int mazokuCustomCall(void* liteDZJM) {
+	void* dzjm = (void*) ((uintptr_t) liteDZJM + 64);
+	void* dzplt = (void*) *(uintptr_t*) anoParam(dzjm, 0LL);
+	void* dzsc = (void*) *(uintptr_t *) (uintptr_t) dzplt;
+	if (dzsc == process_vm_readv) {
+		*(uintptr_t*) dzplt = reinterpret_cast<uintptr_t>(mazoku_vm_readv);
+		LOGI("Updated dmabuf[%p -> %p] to mazoku_vm_***[%p]", dzplt, dzsc, mazoku_vm_readv);
+	}
+	return anoCustomCall(liteDZJM);
+}
 
 unsigned int mazokuCreateMemoryHashed(const void* src, unsigned int len) {
 	//LOGI("[MemoryHashed]: %p (size = [%u])", src, len);
@@ -145,6 +295,7 @@ unsigned int mazokuParcelCreateMemBBacked(const void* src, unsigned int len) {
 
 unsigned int (*unityProxy)(int attestationKey, void* src, size_t len);
 unsigned int mazokuProxy(int attestationKey, void* src, size_t len) {
+	//LOGI("[UnityProxy]: attKey [%d]  target [%p]  size [%zu]", attestationKey, src, len);
 	return unityProxy(attestationKey, spoofScanTarget((void*) src, len), len);
 }
 
@@ -161,35 +312,49 @@ unsigned int mazokuParcelProxy(void* unityNS) {
 		if (!unityProxy)
 			unityProxy = (unsigned int (*)(int, void *, size_t))(proxy);
 		if (reinterpret_cast<unsigned int (*)(int, void *, size_t)>(proxy) == unityProxy) {
-			LOGI("Updated proxy[%p -> %p] to mazokuProxy[%p].", (void*) proxyloc, (void*) proxy, mazokuProxy);
-			*(uintptr_t*) proxyloc = reinterpret_cast<uintptr_t>(mazokuProxy);
+			LOGI("Updated proxy[%p -> %p] to mazokuProxy[%p].", (void *) proxyloc, (void *) proxy,
+				 mazokuProxy);
+			*(uintptr_t *) proxyloc = reinterpret_cast<uintptr_t>(mazokuProxy);
+		} else {
+			LOGE("Unknown proxy[%p]!", (void*) proxy);
 		}
+		unsigned int result = anoParcelProxy(unityNS);
+		*(uintptr_t*) proxyloc = proxy;
+		return result;
 	} else {
 		LOGE("Unable to locate proxy function from libunity.so!");
+		return anoParcelProxy(unityNS);
 	}
-	return anoParcelProxy(unityNS);
 }
+
 
 void* (*anoParcelCreateMemCBacked)(void*) = nullptr;
 void* mazokuParcelCreateMemCBacked(void* vold) {
-	void* plt = (void*) (((uintptr_t *) vold)[1] + 136LL);
-	LOGI("[.got plt(anoCreateMemoryHashed)]: anoCreateMemoryHashed <-- *%p", plt);
 	if (!anoCreateMemoryHashed) {
-		anoCreateMemoryHashed = reinterpret_cast<unsigned int (*)(const void *, unsigned int)>(*(uintptr_t*) plt);
+		void* pltmh = (void*) (((uintptr_t *) vold)[1] + 136LL);
+		anoCreateMemoryHashed = reinterpret_cast<unsigned int (*)(const void *, unsigned int)>(*(uintptr_t*) pltmh);
 		LOGI("anoCreateMemoryHashed [%p]", anoCreateMemoryHashed);
-		*(uintptr_t*) plt = reinterpret_cast<uintptr_t>(mazokuCreateMemoryHashed);
 	}
 	return anoParcelCreateMemCBacked(vold);
 }
 
+void* (*anoParcelEnforceMemCBacked)(void*, void*, size_t) = nullptr;
+void* mazokuParcelEnforceMemCBacked(void* backed, void* nonbacked, size_t len) {
+	return anoParcelEnforceMemCBacked(spoofScanTarget(backed, len), spoofScanTarget(nonbacked, len), len);
+}
+
 void init_callback(uintptr_t start, uintptr_t end, const char* perms,
-					 off_t offset, const char* dev,
-					 unsigned int inode, const char* file)
+				   off_t offset, const char* dev,
+				   unsigned int inode, const char* file)
 {
 	if (strstr(file, "/libanogs.so") && is_elf(start)) {
+		handles["libanogs.so"] = start;
 		hasGameSafe = true;
 		anoGetExternalObjects = (Aeo* (*)()) (start + 0x29AF48);
 		anoCreateSWBackedIntegrity = (unsigned int(*)(int, unsigned char *, size_t)) (start + 0x28D57C);
+		anoTreaters = (void *(*)()) (start + 0x264588);
+		anoCustomCall = (int (*)(void*)) (start + 0x25A34C);
+		anoParam = (void *(*)(void*, unsigned int)) (start + 0x1D6D80);
 	}
 }
 
@@ -222,6 +387,7 @@ bool seekpatch(unsigned int id, void* code, int size)
 		return false;
 	switch (index) {
 		case SPT_MEMHASH_A:
+			std::thread(mazoku_dzjm).detach();
 			A64HookFunction((void*) ((uintptr_t) code + 820), (void*) mazokuParcelCreateMemABacked, (void**) &anoParcelCreateMemABacked);
 			break;
 		case SPT_MEMHASH_B:
@@ -240,6 +406,9 @@ bool seekpatch(unsigned int id, void* code, int size)
 				return false;
 			}*/
 			A64HookFunction((void*) (uintptr_t) code, (void*) mazokuParcelCreateMemCBacked, (void**) &anoParcelCreateMemCBacked);
+			*(uint32_t*)((uintptr_t) code + 1344) = 0xD503201Fu;		// NOP
+			*(uintptr_t*)((uintptr_t) code + 4840) = reinterpret_cast<uintptr_t>(mazokuCreateMemoryHashed);
+			A64HookFunction((void*) ((uintptr_t) code + 1660), (void*) mazokuParcelEnforceMemCBacked, (void**) &anoParcelEnforceMemCBacked);
 			//*(uint32_t*)((uintptr_t) code + 3808 + 4) = 0xD503201Fu;
 			//A64HookFunction((void*) ((uintptr_t) code + 3808), (void*) mazokuParcelCreateMemCBacked, (void**) &anoParcelCreateMemCBacked);
 			//*(uint32_t*)((uintptr_t) code + 3808) = 0x58000048u;		// LDR X8, #0x8
@@ -254,35 +423,78 @@ bool seekpatch(unsigned int id, void* code, int size)
 	return true;
 }
 
-void mazoku_runtime(const std::string& spoofTargetLibs)
+void mazoku_dzjm() {
+	void* trptr = anoTreaters();
+	if (trptr) {
+		void* handler = (void*) *(uintptr_t *) ((uintptr_t) trptr + 48);
+		if (handler) {
+			if ((int (*)(void*)) *(uintptr_t *) ((uintptr_t) handler + 0x28) == anoCustomCall) {
+				LOGI("Redirected DZJM's custom caller.");
+				LOGI("anoCustomCall [%p -> %p] -> mazokuCustomCall[%p]", (void*) ((uintptr_t) handler + 0x28), anoCustomCall, mazokuCustomCall);
+				*(uintptr_t*) ((uintptr_t) handler + 0x28) = reinterpret_cast<uintptr_t>(mazokuCustomCall);
+				mprotect((void*) (handles["libanogs.so"] + 0x543000), 0x1000, PROT_READ | PROT_WRITE);
+				*(uintptr_t*) (handles["libanogs.so"] + 0x543610) = reinterpret_cast<uintptr_t>(mazokuCustomCall);
+				mprotect((void*) (handles["libanogs.so"] + 0x543000), 0x1000, PROT_READ);
+			} else if ((int (*)(void*)) *(uintptr_t *) ((uintptr_t) handler + 0x28) == mazokuCustomCall) {
+				LOGI("Unshare mazoku custom caller.");
+				*(uintptr_t*) ((uintptr_t) handler + 0x28) = reinterpret_cast<uintptr_t>(anoCustomCall);
+			} else
+				LOGW("Unknown custom call, abort.");
+		} else
+			LOGE("Unable to obtain DZJM handlers!");
+	} else
+		LOGE("Unable to obtain DZJM treaters!");
+}
+
+void mazoku_runtime(const std::string& spoofTargetLibs, const std::string& process)
 {
+	std::string app_data = "/data/data/" + process;
+	LOGI("app_data_dir [%s]", app_data.c_str());
+	if (!app_data.empty()) {
+		if (fs::is_directory(app_data + "/files")) {
+			spoofDir = app_data + "/files/.mazoku";
+			if (!fs::is_directory(spoofDir)) {
+				fs::remove(spoofDir);
+				fs::create_directory(spoofDir);
+			}
+			spoofDir += "/";
+		} else
+			LOGE("`%s` is not directory!", (app_data + "/files").c_str());
+	} else
+		LOGE("`app_data_dir` is undefined/empty!");
 	struct timespec loopnap{};
 	loopnap.tv_sec = 1;
 	loopnap.tv_nsec = 0;
 	ssize_t start = 0, end;
+	std::istringstream stlream(spoofTargetLibs);
 	std::string spoofedLib;
+	void* handle = dlopen("libc.so", RTLD_LAZY);
+	process_vm_readv = (ssize_t (*)(pid_t, const struct iovec*, unsigned long, const struct iovec*, unsigned long, unsigned long)) dlsym(handle, "process_vm_readv");
+	if (!process_vm_readv) {
+		LOGE("Cannot resolve dependencies!");
+		return;
+	}
+	dlclose(handle);
 	LOGI("spoofTargetLibs [%s]", spoofTargetLibs.c_str());
 	while (!hasGameSafe && !hasSpoofedLibs) {
 		maps_pairs(init_callback);
 		nanosleep(&loopnap, nullptr);
 	}
-	while ((end = spoofTargetLibs.find('\n')) != std::string::npos) {
-		spoofedLib = spoofTargetLibs.substr(start, end - start);
-		spoofedLibs[spoofedLib];
-		spoofTargetLib(spoofedLib);
-		start = end + 1;
+	while (std::getline(stlream, spoofedLib)) {
+		if (!spoofedLib.empty()) {
+			chkSpoofLibByFiles(spoofedLib);
+			spoofedLibs[spoofedLib];
+			spoofTargetLib(spoofedLib);
+		}
 	}
-	spoofedLib = spoofTargetLibs.substr(start, end - start);
-	spoofedLibs[spoofedLib];
-	spoofTargetLib(spoofedLib);
 	LOGI("anoGetExternalObjects [%p]", anoGetExternalObjects);
 	LOGI("anoCreateSWBackedIntegrity [%p]", anoCreateSWBackedIntegrity);
 	Aeo* anoExtObjs = anoGetExternalObjects();
 	if (anoExtObjs) {
 		LOGI("Aeo [%p]", anoExtObjs);
 		size_t len, updlen;
-		loopnap.tv_sec = 2;
-		loopnap.tv_nsec = 0;
+		loopnap.tv_sec = 0;
+		loopnap.tv_nsec = 1000;
 		do {
 			len = ((uintptr_t) anoExtObjs->finish - (uintptr_t) anoExtObjs->begin) / sizeof(void*);
 			nanosleep(&loopnap, nullptr);
