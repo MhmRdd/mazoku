@@ -28,7 +28,6 @@ using zygisk::ServerSpecializeArgs;
 
 class Mazoku : public zygisk::ModuleBase {
 public:
-	bool isMazokuTarget = false;
 	char* spoofTargetLibs = nullptr;
 
     void onLoad(Api *api, JNIEnv *env) override {
@@ -59,6 +58,7 @@ private:
 
     void preSpecialize(const char *process) {
 		if (!strcmp(process, "com.activision.callofduty.shooter")) {
+			bool enable = false;
 			int pid = getpid();
 			int fd = api->connectCompanion();
 			if (fd == -1) {
@@ -68,21 +68,21 @@ private:
 			}
 			write(fd, &pid, sizeof(pid));
 			writestr(fd, (char*) process);
-			read(fd, &isMazokuTarget, sizeof(isMazokuTarget));
-			if (!isMazokuTarget)
+			read(fd, &enable, sizeof(enable));
+			if (!enable)
 				api->setOption(zygisk::Option::DLCLOSE_MODULE_LIBRARY);
 			else
 				spoofTargetLibs = readstr(fd);
 			if (!strlen(spoofTargetLibs)) {
 				LOGI("Empty spoof_target_libs was provided, closing.");
-				isMazokuTarget = false;
+				api->setOption(zygisk::Option::DLCLOSE_MODULE_LIBRARY);
 			}
 			close(fd);
 		}
     }
 
 	void postSpecialize(const char* process) const {
-		if (isMazokuTarget)
+		if (!strcmp(process, "com.activision.callofduty.shooter"))
 			std::thread(mazoku_runtime, spoofTargetLibs, process).detach();
 		else
 			api->setOption(zygisk::Option::DLCLOSE_MODULE_LIBRARY);

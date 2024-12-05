@@ -59,16 +59,32 @@ std::map<std::string, uintptr_t> handles;
 bool chkSpoofLibByFiles(std::string& lib) {
 	if (lib.empty())
 		return false;
-	if (lib.back() == '?') {
-		lib.pop_back();
-		if (!spoofDir.empty())
-			spoofFromFiles[lib] = true;
-		else {
-			LOGE("Unexpected empty spoofing directory, disabling HW backed proof!");
-			return false;
-		}
-		return true;
-	} else if (spoofFromFiles.find(lib) != spoofFromFiles.end())
+	switch (lib.back()) {
+		case '?':
+			lib.pop_back();
+			if (!spoofDir.empty()) {
+				spoofFromFiles[lib] = true;
+				return true;
+			} else {
+				LOGE("Unexpected empty spoofing directory, disabling HW backed proof!");
+				return false;
+			}
+			break;
+		case '!':
+			lib.pop_back();
+			if (!spoofDir.empty()) {
+				spoofFromFiles[lib] = true;
+				return true;
+			} else {
+				LOGF("Unable to continue without HW backed proof (strict mode enabled).");
+				kill(getpid(), SIGKILL);
+				return false;
+			}
+			break;
+		default:
+			break;
+	}
+	if (spoofFromFiles.find(lib) != spoofFromFiles.end())
 		return true;
 	return false;
 }
