@@ -267,6 +267,7 @@ void mazoku_dzjm();
 
 Aeo* (*anoGetExternalObjects)();
 unsigned int (*anoCreateSWBackedIntegrity)(int, unsigned char *, size_t) = nullptr;
+uint32_t (*anoChkBackedExternalObjects)(Aeo*);
 unsigned int (*anoCreateMemoryHashed)(const void*, unsigned int) = nullptr;
 void* (*anoTreaters)() = nullptr;
 void* (*anoParam)(void*, unsigned int) = nullptr;
@@ -276,7 +277,7 @@ ssize_t mazoku_vm_readv(pid_t pid, const struct iovec* local_iov, unsigned long 
 	struct iovec mazoku_iov{};
 	mazoku_iov.iov_base = spoofScanTarget(remote_iov->iov_base, remote_iov->iov_len);
 	if (mazoku_iov.iov_base != remote_iov->iov_base) {
-		LOGI("[mazoku_vm] Futile scan replaced [%p -> %p]", remote_iov->iov_base, mazoku_iov.iov_base);
+		//LOGI("[mazoku_vm] Futile scan replaced [%p -> %p]", remote_iov->iov_base, mazoku_iov.iov_base);
 		return process_vm_readv(pid, local_iov, liovcnt, &mazoku_iov, riovcnt, flags);
 	} else
 		return process_vm_readv(pid, local_iov, liovcnt, remote_iov, riovcnt, flags);
@@ -290,6 +291,9 @@ int mazokuCustomCall(void* liteDZJM) {
 	if (dzsc == process_vm_readv) {
 		*(uintptr_t*) dzplt = reinterpret_cast<uintptr_t>(mazoku_vm_readv);
 		LOGI("Updated dmabuf[%p -> %p] to mazoku_vm_***[%p]", dzplt, dzsc, mazoku_vm_readv);
+		int result = anoCustomCall(liteDZJM);
+		*(uintptr_t*) dzplt = reinterpret_cast<uintptr_t>(dzsc);
+		return result;
 	}
 	return anoCustomCall(liteDZJM);
 }
@@ -368,6 +372,7 @@ void init_callback(uintptr_t start, uintptr_t end, const char* perms,
 		hasGameSafe = true;
 		anoGetExternalObjects = (Aeo* (*)()) (start + 0x29AF48);
 		anoCreateSWBackedIntegrity = (unsigned int(*)(int, unsigned char *, size_t)) (start + 0x28D57C);
+		anoChkBackedExternalObjects = (uint32_t (*)(Aeo *)) (start + 0x29AA54);
 		anoTreaters = (void *(*)()) (start + 0x264588);
 		anoCustomCall = (int (*)(void*)) (start + 0x25A34C);
 		anoParam = (void *(*)(void*, unsigned int)) (start + 0x1D6D80);
@@ -392,9 +397,6 @@ enum SPTAG {
 
 bool seekpatch(unsigned int id, void* code, int size)
 {
-	struct timespec loopnap{};
-	loopnap.tv_sec = 0;
-	loopnap.tv_nsec = 100;
 	long index;
 	auto it = std::find(spid.begin(), spid.end(), id);
 	if (it != spid.end() && std::find(sped.begin(), sped.end(), id) == sped.end()) {
@@ -551,8 +553,15 @@ void mazoku_runtime(const std::string& spoofTargetLibs, const std::string& proce
 			} while (updlen <= len);
 			len = updlen;
 			goto loopback;
-		} else
-			LOGI("Completed injection!");
+		} else {
+			uint32_t extObjAttestationResult = anoChkBackedExternalObjects(anoExtObjs);
+			if (extObjAttestationResult) {
+				LOGF("Attestation doesn't meet valid verdict, terminate.");
+				LOGF("Fault object [%x]", extObjAttestationResult);
+			} else
+				LOGI("Attestation meets valid verdicts.");
+		}
+		LOGI("Completed injection!");
 	} else {
 		LOGE("nulled Aeo found, exiting..");
 	}

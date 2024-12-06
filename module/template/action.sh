@@ -31,7 +31,7 @@ getLastModified() {
 lmd=$(getLastModified "$config2")
 if [ $? -eq 0 ]; then
 	cfg2stmp=$(/system/bin/date -d "$(formatDate "$lmd")" +%s)
-    echo "✅    config2.xml:  $lmd ($cfg2stmp)"
+    echo "✅    config2.xml:  $lmd"
 else
     echo "❌    config2.xml:  $lmd"
     exit 1;
@@ -48,9 +48,9 @@ echo "$cfg2" | while IFS= read -r line; do
         if [ $? -eq 0 ]; then
         	filestmp=$(( $(/system/bin/date -d "$(formatDate "$lmd")" +%s) + 3600 ))
 			if [ "$filestmp" -gt "$cfg2stmp" ]; then
-			    echo "⚠️    $name:  $lmd ($filestmp)"
+			    echo "⚠️    $name:  $lmd"
 			else
-				echo "✅    $name:  $lmd ($filestmp)"
+				  echo "-    $name:  $lmd"
 			fi
 		else
 		    echo "❌    $name.xml:  $lmd"
@@ -60,7 +60,7 @@ echo "$cfg2" | while IFS= read -r line; do
         fi
     fi
 done
-printf "\n\n\n"
+printf "- Completed checking!\n\n\n"
 
-sleep 3
+sleep 4
 exit;
