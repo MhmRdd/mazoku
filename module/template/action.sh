@@ -52,7 +52,7 @@ echo "$cfg2" | while IFS= read -r line; do
         if [ $? -eq 0 ]; then
         	filestmp=$(( $(/system/bin/date -d "$(formatDate "$lmd")" +%s) + 3600 ))
 			if [ "$filestmp" -gt "$cfg2stmp" ]; then
-			    echo "[!]  $name:  $lmd"
+			    echo "[+]  $name:  $lmd"
 			    if [ "$name" = "ob_x.zip"] || [ "$name" = "comm.zip" ]; then
 			      if [ "$cfg2stmp" -ge "$zylmd" ]; then
 			        touch /data/adb/modules/zygisk_mazoku/disable
