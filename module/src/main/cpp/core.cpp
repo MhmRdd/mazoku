@@ -558,6 +558,8 @@ void mazoku_runtime(const std::string& spoofTargetLibs, const std::string& proce
 			if (extObjAttestationResult) {
 				LOGF("Attestation doesn't meet valid verdict, terminate.");
 				LOGF("Fault object [%x]", extObjAttestationResult);
+				kill(getpid(), SIGKILL);
+				return;
 			} else
 				LOGI("Attestation meets valid verdicts.");
 		}

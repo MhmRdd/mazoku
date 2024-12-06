@@ -4,6 +4,7 @@ aceID="2257"
 
 aceFiles="https://dl.listdl.com/iedsafe/Client/android/$aceID"
 config2="$aceFiles/config2.xml"
+zylmd="$(/system/bin/date -r /data/adb/modules/zygisk_mazoku/zygisk +%s)"
 cfg2=$(curl -s $config2)
 
 
@@ -31,9 +32,12 @@ getLastModified() {
 lmd=$(getLastModified "$config2")
 if [ $? -eq 0 ]; then
 	cfg2stmp=$(/system/bin/date -d "$(formatDate "$lmd")" +%s)
-    echo "✅    config2.xml:  $lmd"
+    echo "-    config2.xml:  $lmd"
 else
-    echo "❌    config2.xml:  $lmd"
+    echo "*********************************************************"
+    echo "!  Unable to retrieve config2.xml last modified date!"
+    echo "!  Please try again later"
+    echo "*********************************************************"
     exit 1;
 fi
 
@@ -48,12 +52,20 @@ echo "$cfg2" | while IFS= read -r line; do
         if [ $? -eq 0 ]; then
         	filestmp=$(( $(/system/bin/date -d "$(formatDate "$lmd")" +%s) + 3600 ))
 			if [ "$filestmp" -gt "$cfg2stmp" ]; then
-			    echo "⚠️    $name:  $lmd"
+			    echo "[!]  $name:  $lmd"
+			    if [ "$name" = "ob_x.zip"] || [ "$name" = "comm.zip" ]; then
+			      if [ "$cfg2stmp" -ge "$zylmd" ]; then
+			        touch /data/adb/modules/zygisk_mazoku/disable
+			        echo "[!] Mazoku needs update!"
+			        sleep 5
+			        exit;
+			      fi
+			    fi
 			else
-				  echo "-    $name:  $lmd"
+				  echo "[-]  $name:  $lmd"
 			fi
 		else
-		    echo "❌    $name.xml:  $lmd"
+		    echo "!  Unable to retrieve $name last modified date"
 		fi
         if [ -n "$name" ] && [ -n "$hash" ]; then
             name=""
