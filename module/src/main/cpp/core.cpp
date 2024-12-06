@@ -267,7 +267,6 @@ void mazoku_dzjm();
 
 Aeo* (*anoGetExternalObjects)();
 unsigned int (*anoCreateSWBackedIntegrity)(int, unsigned char *, size_t) = nullptr;
-uint32_t (*anoChkBackedExternalObjects)(Aeo*);
 unsigned int (*anoCreateMemoryHashed)(const void*, unsigned int) = nullptr;
 void* (*anoTreaters)() = nullptr;
 void* (*anoParam)(void*, unsigned int) = nullptr;
@@ -372,7 +371,6 @@ void init_callback(uintptr_t start, uintptr_t end, const char* perms,
 		hasGameSafe = true;
 		anoGetExternalObjects = (Aeo* (*)()) (start + 0x29AF48);
 		anoCreateSWBackedIntegrity = (unsigned int(*)(int, unsigned char *, size_t)) (start + 0x28D57C);
-		anoChkBackedExternalObjects = (uint32_t (*)(Aeo *)) (start + 0x29AA54);
 		anoTreaters = (void *(*)()) (start + 0x264588);
 		anoCustomCall = (int (*)(void*)) (start + 0x25A34C);
 		anoParam = (void *(*)(void*, unsigned int)) (start + 0x1D6D80);
@@ -553,17 +551,8 @@ void mazoku_runtime(const std::string& spoofTargetLibs, const std::string& proce
 			} while (updlen <= len);
 			len = updlen;
 			goto loopback;
-		} else {
-			uint32_t extObjAttestationResult = anoChkBackedExternalObjects(anoExtObjs);
-			if (extObjAttestationResult) {
-				LOGF("Attestation doesn't meet valid verdict, terminate.");
-				LOGF("Fault object [%x]", extObjAttestationResult);
-				kill(getpid(), SIGKILL);
-				return;
-			} else
-				LOGI("Attestation meets valid verdicts.");
-		}
-		LOGI("Completed injection!");
+		} else
+			LOGI("Completed injection!");
 	} else {
 		LOGE("nulled Aeo found, exiting..");
 	}
