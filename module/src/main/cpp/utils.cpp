@@ -285,10 +285,19 @@ char* wherethis(const void* src) {
 				const char* last_slash = strrchr(path, '/');
 				if (last_slash && strstr(last_slash, "/lib") && strstr(last_slash, ".so")) {
 					char* lib_name = static_cast<char *>(malloc(strlen(last_slash + 1) + 1));
+					memset(lib_name, 0, strlen(last_slash + 1) + 1);
 					if (lib_name) strcpy(lib_name, last_slash + 1);
 					free(line);
 					fclose(maps);
 					return lib_name;
+				}
+				if (strstr(path, "[anon:objects_external_alloc]")) {
+					char* obj_name = static_cast<char *>(malloc(strlen(path) + 1));
+					memset(obj_name, 0, strlen(path) + 1);
+					if (obj_name) strcpy(obj_name, path);
+					free(line);
+					fclose(maps);
+					return obj_name;
 				}
 			}
 		}
