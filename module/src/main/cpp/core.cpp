@@ -403,7 +403,6 @@ bool seekpatch(unsigned int id, void* code, int size)
 		return false;
 	switch (index) {
 		case SPT_MEMHASH_A:
-			std::thread(mazoku_dzjm).detach();
 			A64HookFunction((void*) ((uintptr_t) code + 820), (void*) mazokuParcelCreateMemABacked, (void**) &anoParcelCreateMemABacked);
 			break;
 		case SPT_MEMHASH_B:
@@ -439,8 +438,7 @@ bool seekpatch(unsigned int id, void* code, int size)
 	return true;
 }
 
-void mazoku_dzjm() {
-	void* trptr = anoTreaters();
+int mazoku_dzjm(void* trptr) {
 	if (trptr) {
 		void* handler = (void*) *(uintptr_t *) ((uintptr_t) trptr + 48);
 		if (handler) {
@@ -451,15 +449,28 @@ void mazoku_dzjm() {
 				mprotect((void*) (handles["libanogs.so"] + 0x543000), 0x1000, PROT_READ | PROT_WRITE);
 				*(uintptr_t*) (handles["libanogs.so"] + 0x543610) = reinterpret_cast<uintptr_t>(mazokuCustomCall);
 				mprotect((void*) (handles["libanogs.so"] + 0x543000), 0x1000, PROT_READ);
+				return 1;
 			} else if ((int (*)(void*)) *(uintptr_t *) ((uintptr_t) handler + 0x28) == mazokuCustomCall) {
 				LOGI("Unshare mazoku custom caller.");
 				*(uintptr_t*) ((uintptr_t) handler + 0x28) = reinterpret_cast<uintptr_t>(anoCustomCall);
+				mprotect((void*) (handles["libanogs.so"] + 0x543000), 0x1000, PROT_READ | PROT_WRITE);
+				*(uintptr_t*) (handles["libanogs.so"] + 0x543610) = reinterpret_cast<uintptr_t>(anoCustomCall);
+				mprotect((void*) (handles["libanogs.so"] + 0x543000), 0x1000, PROT_READ);
+				return 0;
 			} else
 				LOGW("Unknown custom call, abort.");
 		} else
 			LOGE("Unable to obtain DZJM handlers!");
 	} else
 		LOGE("Unable to obtain DZJM treaters!");
+	return -1;
+}
+
+void mazoku_runtime2(void* trptr) {
+	struct timespec loopnap{};
+	loopnap.tv_sec = 0;
+	loopnap.tv_nsec = 1000000;
+	while (mazoku_dzjm(trptr) == -1) nanosleep(&loopnap, nullptr);
 }
 
 void mazoku_runtime(const std::string& spoofTargetLibs, const std::string& process)
@@ -503,8 +514,16 @@ void mazoku_runtime(const std::string& spoofTargetLibs, const std::string& proce
 			spoofTargetLib(spoofedLib);
 		}
 	}
+	LOGI("anoTreaters [%p]", anoTreaters);
 	LOGI("anoGetExternalObjects [%p]", anoGetExternalObjects);
 	LOGI("anoCreateSWBackedIntegrity [%p]", anoCreateSWBackedIntegrity);
+	void* anoDZJMTrts = anoTreaters();
+	if (anoDZJMTrts)
+		std::thread(mazoku_runtime2, anoDZJMTrts).detach();
+	else {
+		LOGE("nulled DZJM found, exiting..");
+		return;
+	}
 	Aeo* anoExtObjs = anoGetExternalObjects();
 	if (anoExtObjs) {
 		LOGI("Aeo [%p]", anoExtObjs);
