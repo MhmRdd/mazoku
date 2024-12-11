@@ -53,41 +53,43 @@ typedef struct {
 bool hasGameSafe = false, hasSpoofedLibs = false;
 
 std::string spoofDir;
-std::map<std::string, bool> spoofFromFiles;
+std::map<std::string, char> spoofFromFiles;
 std::map<std::string, std::set<std::tuple<uintptr_t, uintptr_t, size_t>>> spoofedLibs;
 std::map<std::string, uintptr_t> handles;
 
-bool chkSpoofLibByFiles(std::string& lib) {
+char chkSpoofLibByFiles(std::string& lib) {
 	if (lib.empty())
-		return false;
-	switch (lib.back()) {
+		return 0;
+	char token = lib.back();
+	switch (token) {
 		case '?':
 			lib.pop_back();
 			if (!spoofDir.empty()) {
-				spoofFromFiles[lib] = true;
-				return true;
+				spoofFromFiles[lib] = token;
+				return token;
 			} else {
 				LOGE("Unexpected empty spoofing directory, disabling HW backed proof!");
-				return false;
+				return 0;
 			}
 			break;
 		case '!':
 			lib.pop_back();
 			if (!spoofDir.empty()) {
-				spoofFromFiles[lib] = true;
-				return true;
+				spoofFromFiles[lib] = token;
+				return token;
 			} else {
 				LOGF("Unable to continue without HW backed proof (strict mode enabled).");
 				kill(getpid(), SIGKILL);
-				return false;
+				return 0;
 			}
 			break;
 		default:
 			break;
 	}
-	if (spoofFromFiles.find(lib) != spoofFromFiles.end())
-		return true;
-	return false;
+	auto it = spoofFromFiles.find(lib);
+	if (it != spoofFromFiles.end())
+		return it->second;
+	return 0;
 }
 
 bool writeTargetLibByFiles(std::string& lib, int index, void* src, size_t len) {
@@ -195,11 +197,16 @@ bool spoofTargetLib(std::string& lib) {
 					mprotect(vmcpy, len, PROT_READ);
 					index--;
 				} else {
-					if (!readTargetLibByFiles(lib, index, vmcpy, len)) {
+					uint8_t* backedBlock = fsha256(std::string(spoofDir + lib + "." + std::to_string(index) + ".sha256").c_str());
+					if (!backedBlock && chkSpoofLibByFiles(lib) == '!') {
+						free(vmcpy);
+						LOGI("Ignoring `%s`(%d) [%p-%p] (strict mode enabled)", lib.c_str(), index,
+							 (void *) start, (void *) end);
+						continue;
+					} else if (!readTargetLibByFiles(lib, index, vmcpy, len)) {
 						memcpy(vmcpy, (void *) start, len);
 						writeTargetLibByFiles(lib, index, vmcpy, len);
 					}
-					uint8_t* backedBlock = fsha256(std::string(spoofDir + lib + "." + std::to_string(index) + ".sha256").c_str());
 					if (backedBlock) {
 						uint8_t* hashedBlock = sha256(vmcpy, len);
 						if (!csha256(backedBlock, hashedBlock)) {
@@ -215,7 +222,7 @@ bool spoofTargetLib(std::string& lib) {
 				mprotect(vmcpy, len, PROT_READ);
 				it->second.emplace(start, (uintptr_t) vmcpy, len);
 				isAddedAtLeastOnce = true;
-				LOGI("Created software backed copy of `%s`[%p-%p]!", lib.c_str(),
+				LOGI("Created software backed copy of `%s`(%d) [%p-%p]!", lib.c_str(), index,
 					 (void *) start, (void *) end);
 				index++;
 			}
