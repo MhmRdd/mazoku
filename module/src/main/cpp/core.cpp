@@ -192,6 +192,7 @@ bool spoofTargetLib(std::string& lib) {
 					continue;
 				} else if (perms == "r--p") {
 					memcpy(vmcpy, (void *) start, len);
+					mprotect(vmcpy, len, PROT_READ);
 					index--;
 				} else {
 					if (!readTargetLibByFiles(lib, index, vmcpy, len)) {
@@ -230,13 +231,14 @@ extern "C" void *spoofScanTarget(void *at, size_t len) {
 			if (lib == slib) {
 				for (const auto& deny : denylist) {
 					if (std::get<0>(deny) <= (uintptr_t) at && std::get<0>(deny) + std::get<2>(deny) >= (uintptr_t) at + len) {
+						//LOGI("`%s` was found in spoofed targets!", slib.c_str());
 						//LOGI("Scan[(%s + %p) (size = [%zu]) -> [%p (size = [%zu])]", lib, (void*) ((uintptr_t) at - std::get<0>(deny)), len, (void*) std::get<1>(deny), std::get<2>(deny));
 						return (void*) (std::get<1>(deny) + ((uintptr_t) at - std::get<0>(deny)));
 					}
 				}
 			}
 		}
-		LOGI("`%s` was found in spoofed target libs.", lib);
+		//LOGI("`%s`[%p](size: %zu) was not found in spoofed target libs.", lib, at, len);
 	}
 	free(lib);
 	return at;
@@ -403,10 +405,10 @@ bool seekpatch(unsigned int id, void* code, int size)
 		index = std::distance(spid.begin(), it);
 	} else
 		return false;
-	void* cpy = malloc(size);
-	memcpy(cpy, code, size);
-	mprotect(cpy, size, PROT_READ);
-	spoofedLibs["[anon:objects_external_alloc]"].emplace((uintptr_t) code, (uintptr_t) cpy, size);
+	//void* cpy = malloc(size);
+	//memcpy(cpy, code, size);
+	//mprotect(cpy, size, PROT_READ);
+	//spoofedLibs["[anon:objects_external_alloc]"].emplace((uintptr_t) code, (uintptr_t) cpy, size);
 	switch (index) {
 		case SPT_MEMHASH_A:
 			A64HookFunction((void*) ((uintptr_t) code + 820), (void*) mazokuParcelCreateMemABacked, (void**) &anoParcelCreateMemABacked);
