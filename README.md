@@ -2,6 +2,9 @@
 
 An Zygisk Module to intercept ACE requests and effectively replace malicious modifications to a genuine attestation.
 
+## Current supported versions
+- CODM 1.0.48 (Working as of now)
+
 ## Usage
 
 1. Disable all modules & malicious modifiers towards target app.
