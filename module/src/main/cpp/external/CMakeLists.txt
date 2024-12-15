@@ -93,4 +93,7 @@ target_compile_options(cxx PRIVATE ${LIBCXX_FLAGS} ${LIBCXXABI_FLAGS} -ffunction
 target_include_directories(cxx PUBLIC ${LIBCXX_EXPORT_INCLUDES})
 target_include_directories(cxx PRIVATE ${LIBCXX_INCLUDES} ${LIBCXXABI_INCLUDES})
 
+add_subdirectory(Dobby-master)
+target_include_directories(dobby_static PUBLIC Dobby-master/include)
+
 # end cxx

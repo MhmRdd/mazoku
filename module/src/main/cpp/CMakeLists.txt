@@ -14,4 +14,4 @@ add_library(${MODULE_NAME} SHARED mazoku.cpp And64InlineHook.cpp)
 
 add_subdirectory(external)
 
-target_link_libraries(${MODULE_NAME} cxx log)
+target_link_libraries(${MODULE_NAME} cxx log dobby_static)

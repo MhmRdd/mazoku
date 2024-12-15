@@ -23,6 +23,7 @@
 #include <iomanip>
 #include <filesystem>
 #include <dlfcn.h>
+#include <dobby.h>
 
 namespace fs = std::filesystem;
 

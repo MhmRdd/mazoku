@@ -1,16 +1,16 @@
-# Zygisk Module Template
+# Mazoku
 
-An Zygisk Module Template based on zygisk-module-sample. Both cmake and ndk-build are supported.
+An Zygisk Module to intercept ACE requests and effectively replace malicious modifications to a genuine attestation.
 
 ## Usage
 
-1. Edit your moduleId in [build.gradle.kts](./build.gradle.kts) (It's also your module's soname).  
-2. Edit other module info in build.gradle.kts or module/template/module.prop.  
-3. Write your code in module/src/main/cpp .  
-4. Run gradle task `:zipDebug` or `:zipRelease` to build the module. 
-   Your module zip will be generated under `module/release`. 
-5. Run gradle task `:install(Magisk|Ksu)[AndReboot](Debug|Release)` to flash your module (optional).  
+1. Disable all modules & malicious modifiers towards target app.
+2. Install this module & set configuration in `/data/adb/mazoku/spoof_target_libs.txt` with `?` flag (to create hardware backed copy of libraries) or `!` flag (to strictly check for specified hardware backed copy & verify its integrity).
+3. Reboot & open target app.
+4. Check for hardware copies in `/data/user/0/com.example/files/.mazoku` & compare sha256 of blocks to verify verity of backed copies.
+5. Enable your modifiers.
 
-## See also
-
-https://github.com/topjohnwu/zygisk-module-sample
+# Notes
+- Does not work against system libraries such as libc.so, etc...
+- Does not hide itself against the process (Shamiko might help but not a permanent solution, see more about susfs).
+- Does not hide modifiers from exposition in target process.
